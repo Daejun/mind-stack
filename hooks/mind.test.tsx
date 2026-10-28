@@ -217,6 +217,7 @@ describe('hooks', () => {
   test('a resume in the running process shows the stack that session saved', async ($, on) => {
     const clock = mock.clock(on)
     mock.store(on)
+    engineHint(on)
     mockFiles(on)
     let id = 's4'
 
@@ -236,12 +237,21 @@ describe('hooks', () => {
     await $.prompt.submit(typed('fio bench 돌려줘'))
     await clock.advance(5)
 
+    const ui = await $.ui.mount(HINT)
+    const row = async () => (await ui.find({ type: 'Text', text: /📚/ }))?.text
+
+    // The id moves on only after the end, as the engine does it.
     await $.session.end({ reason: 'resume', sessionId: 's4', resume: { id: 's4' } })
+    await clock.advance(200)
     id = 's5'
-    expect((await $.command.run(topic(''))).text?.includes('stack: (비어 있음)')).toBe(true)
+    await clock.advance(1000)
+    expect(await row()).toBe('📚 (주제 없음)')
 
     await $.session.end({ reason: 'resume', sessionId: 's5', resume: { id: 's5' } })
     id = 's4'
+    await clock.advance(1000)
+    expect(await row()).toBe('📚 fio bench')
+    await ui.unmount()
     expect((await $.command.run(topic(''))).text?.includes('1. fio bench')).toBe(true)
   })
 

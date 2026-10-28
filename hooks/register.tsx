@@ -25,6 +25,8 @@ const MIN_PROMPT = 10
 const STORE_INDEX = 'sessions'
 const STORE_CAP = 30
 const LOG_CAP = 200
+const RESUME_POLL_MS = 200
+const RESUME_TRIES = 25
 // Where a prompt the developer wrote comes from.
 const TYPED: ReadonlySet<string> = new Set(['composer', 'bridge'])
 
@@ -229,6 +231,21 @@ export const register: Register = (on, options) => {
     // The next session's stack, if it saved one, comes back through restore().
     if (e.reason === 'clear' || e.reason === 'resume') {
       await update($, mind, x => ({ ...EMPTY, isAuto: x.isAuto, columns: x.columns }))
+    }
+    // The resumed session's id comes a moment after this end, and no
+    // session.start follows: wait for it, so the row shows its stack before
+    // the first prompt.
+    if (e.reason === 'resume') {
+      const ended = e.sessionId
+      let tries = 0
+      const poll = async (): Promise<void> => {
+        if ((await $.session.id()) !== ended) {
+          await restore($)
+        } else if (++tries < RESUME_TRIES) {
+          $.clock.after(RESUME_POLL_MS, () => void poll().catch(() => undefined))
+        }
+      }
+      $.clock.after(RESUME_POLL_MS, () => void poll().catch(() => undefined))
     }
 
     return next(e)
