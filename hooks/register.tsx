@@ -17,7 +17,7 @@ import {
 // Change the tag when Mind's fields change: it declines what an earlier
 // version stored, which outlives a reload.
 const mind = atom({ plugin: 'mind-stack', key: 'mind' } as const, EMPTY, {
-  shape: 'mind-2',
+  shape: 'mind-3',
 })
 
 const MODEL = 'haiku'
@@ -29,8 +29,19 @@ const RESUME_POLL_MS = 200
 const RESUME_TRIES = 25
 // Where a prompt the developer wrote comes from.
 const TYPED: ReadonlySet<string> = new Set(['composer', 'bridge'])
+// Names the rules a logged call was judged by.
+const RULES_ID = fnv(RULES)
 
 type $ = EngineInterface
+
+function fnv(s: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < s.length; i++) {
+    h = Math.imul(h ^ s.charCodeAt(i), 0x01000193)
+  }
+
+  return (h >>> 0).toString(16).padStart(8, '0')
+}
 
 function lastReply(messages: readonly SessionMessage[]): string {
   const m = messages.findLast(one => one.role === 'assistant' && one.text !== '')
@@ -51,9 +62,9 @@ async function save($: $): Promise<void> {
 }
 
 // Brings back the stack the running session saved. A resume in the running
-// process, like a /clear, goes on under another id with no session.start, so
-// this runs wherever the state can be written: at the start, at a prompt and
-// at /topic.
+// process, like a /clear, goes on under another id with no session.start:
+// session.end waits for that id and calls this, and so do the start, each
+// prompt and /topic, in case the id came later than the wait.
 async function restore($: $): Promise<void> {
   const m = await read($, mind)
   if (m.stack.length > 0) {
@@ -61,7 +72,12 @@ async function restore($: $): Promise<void> {
   }
   const saved = (await $.store.get(`mind:${await $.session.id()}`)) as Mind | undefined
   if (saved && Array.isArray(saved.stack) && saved.stack.length > 0) {
-    await update($, mind, () => ({ ...EMPTY, ...saved, isJudging: false }))
+    await update($, mind, () => ({
+      ...EMPTY,
+      ...saved,
+      usage: { ...EMPTY.usage, ...saved.usage },
+      isJudging: false,
+    }))
   }
 }
 
@@ -89,15 +105,24 @@ async function logCall($: $, row: Record<string, unknown>): Promise<void> {
   await $.fs.write(path, lines.slice(-LOG_CAP).join('\n') + '\n')
 }
 
-async function judge($: $, prompt: string, reply: string, turn: number) {
+// hasLeft: the session the prompt came from has ended since, as at a /clear
+// or a /resume. Its verdict then belongs to no stack on screen.
+async function judge($: $, prompt: string, reply: string, turn: number, hasLeft: () => boolean) {
+  if (hasLeft()) {
+    return
+  }
+  const session = await $.session.id()
   const before = await read($, mind)
-  await change($, m => ({ ...m, isJudging: true }))
+  // Drawn only: the stack is saved once the verdict is in.
+  await update($, mind, m => ({ ...m, isJudging: true }))
 
   const startedAt = await $.clock.now()
   const asked = request(before.stack, reply, prompt)
   const r = await $.model.complete({
     model: MODEL,
-    system: RULES,
+    // The rules are the same in every call: read from the prompt cache within
+    // five minutes of the last one.
+    system: [{ text: RULES, cache: true }],
     prompt: asked,
     maxTokens: 512,
     effort: 'low',
@@ -107,60 +132,72 @@ async function judge($: $, prompt: string, reply: string, turn: number) {
     ? parseVerdict(r.text, before.stack.length)
     : undefined
   const u = r.usage
-  const input =
-    u.input_tokens +
-    (u.cache_creation_input_tokens ?? 0) +
-    (u.cache_read_input_tokens ?? 0)
+  const cacheRead = u.cache_read_input_tokens ?? 0
+  const cacheWrite = u.cache_creation_input_tokens ?? 0
+  const input = u.input_tokens + cacheWrite + cacheRead
+  const isLeft = hasLeft()
 
-  await change($, m => {
-    // A /topic command that ran meanwhile wins over this verdict.
-    const isStale =
-      JSON.stringify(m.stack) !== JSON.stringify(before.stack) || m.isHeld
-    const judged = verdict && !isStale ? apply(m, verdict, turn) : m
+  if (isLeft) {
+    // Nothing is saved: the state now is another session's.
+    await update($, mind, m => ({ ...m, isJudging: false }))
+  } else {
+    await change($, m => {
+      // A /topic command that ran meanwhile wins over this verdict.
+      const isStale =
+        JSON.stringify(m.stack) !== JSON.stringify(before.stack) || m.isHeld
+      const judged = verdict && !isStale ? apply(m, verdict, turn) : m
 
-    return {
-      ...judged,
-      isJudging: false,
-      usage: {
-        calls: m.usage.calls + 1,
-        failures: m.usage.failures + (verdict ? 0 : 1),
-        inputTokens: m.usage.inputTokens + input,
-        outputTokens: m.usage.outputTokens + u.output_tokens,
-      },
-    }
-  })
+      return {
+        ...judged,
+        isJudging: false,
+        usage: {
+          calls: m.usage.calls + 1,
+          failures: m.usage.failures + (verdict ? 0 : 1),
+          inputTokens: m.usage.inputTokens + input,
+          cacheReadTokens: m.usage.cacheReadTokens + cacheRead,
+          outputTokens: m.usage.outputTokens + u.output_tokens,
+        },
+      }
+    })
+  }
+  const after = await read($, mind)
 
   // A log that cannot be written costs the judgment nothing.
   await logCall($, {
     at: new Date(startedAt).toISOString(),
     ms: (await $.clock.now()) - startedAt,
-    session: await $.session.id(),
+    session,
+    rules: RULES_ID,
     turn,
     stack: before.stack.map(t => t.label),
+    // Null when the session ended before the verdict came.
+    after: isLeft ? null : after.stack.map(t => t.label),
+    isRootDoubted: isLeft ? null : after.isRootDoubted,
     prompt: prompt.slice(0, 60),
     // The whole request, so a logged call can be judged again.
     request: asked,
     verdict: verdict ?? null,
     text: r.isAnswered ? r.text : null,
     inputTokens: input,
+    cacheReadTokens: cacheRead,
+    cacheWriteTokens: cacheWrite,
     outputTokens: u.output_tokens,
     ...(r.isAnswered ? {} : { reason: r.reason }),
   }).catch(() => undefined)
 }
 
-async function command($: $, args: string, columns: number): Promise<string> {
+async function command($: $, args: string): Promise<string> {
   await restore($)
   const [sub = '', ...rest] = args.trim().split(/\s+/)
   const word = rest.join(' ')
   const m = await read($, mind)
   // A stack set by hand is the developer's own: no switch doubts its root.
-  const held = (next: Mind): Mind => ({ ...next, columns, isHeld: true, isRootDoubted: false })
+  const held = (next: Mind): Mind => ({ ...next, isHeld: true, isRootDoubted: false })
 
   switch (sub) {
     case '':
     case 'log':
-      await change($, x => ({ ...x, columns }))
-      return `${listing(await read($, mind))}\n호출별 기록: ${(await logPath($)) ?? '(HOME 없음)'}`
+      return `${listing(m)}\n호출별 기록: ${(await logPath($)) ?? '(HOME 없음)'}`
     case 'push': {
       const label = cleanLabel(word)
       if (label === undefined) {
@@ -196,10 +233,10 @@ async function command($: $, args: string, columns: number): Promise<string> {
       await change($, x => held({ ...x, stack: [], history: [] }))
       return 'stack을 비웠습니다.'
     case 'off':
-      await change($, x => ({ ...x, columns, isAuto: false }))
+      await change($, x => ({ ...x, isAuto: false }))
       return '자동 판정을 껐습니다. /topic push, pop, rename으로만 바뀝니다.'
     case 'on':
-      await change($, x => ({ ...x, columns, isAuto: true }))
+      await change($, x => ({ ...x, isAuto: true }))
       return '자동 판정을 켰습니다.'
     default:
       return '사용법: /topic [log | push <label> | pop [n] | rename <label> | reset | off | on]'
@@ -212,25 +249,28 @@ export const register: Register = (on, options) => {
 
   // Judgments run one at a time, in the order the prompts were sent.
   let queue: Promise<void> = Promise.resolve()
+  // Counts session ends, so a judgment can tell its session has gone.
+  let epoch = 0
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'topic',
-      description: 'Show or edit the topic stack in the status line',
+      description: 'Show or edit the topic stack drawn under the prompt',
       argumentHint: '[log | push <label> | pop [n] | rename <label> | reset | off | on]',
       immediate: true,
     })
+    // A reload drops the queue, and a judgment cut short with it.
+    await update($, mind, x => (x.isJudging ? { ...x, isJudging: false } : x))
     await restore($)
-    // 0.1.0 drew the trail as a status line; clear one left from then.
-    $.ui.status(undefined)
 
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
+    epoch++
     // The next session's stack, if it saved one, comes back through restore().
     if (e.reason === 'clear' || e.reason === 'resume') {
-      await update($, mind, x => ({ ...EMPTY, isAuto: x.isAuto, columns: x.columns }))
+      await update($, mind, x => ({ ...EMPTY, isAuto: x.isAuto }))
     }
     // The resumed session's id comes a moment after this end, and no
     // session.start follows: wait for it, so the row shows its stack before
@@ -274,12 +314,15 @@ export const register: Register = (on, options) => {
     }
     const reply = lastReply(await $.session.messages())
     const turn = (await $.session.turns()) + 1
+    const sent = epoch
 
     // Off the prompt's path: the turn starts without waiting for haiku.
     $.clock.after(1, () => {
       queue = queue
-        .then(() => judge($, text, reply, turn))
-        .catch(() => change($, x => ({ ...x, isJudging: false })))
+        .then(() => judge($, text, reply, turn, () => epoch !== sent))
+        .catch(async () => {
+          await update($, mind, x => ({ ...x, isJudging: false }))
+        })
     })
 
     return next(e)
@@ -287,7 +330,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const m = await read($, mind)
-    const line = trailLine(m, (e.viewport?.columns ?? m.columns) - 4 - width(icon))
+    const line = trailLine(m, (e.viewport?.columns ?? 80) - 4 - width(icon))
     const { Box, Text } = $.ui.resolve(e)
 
     return (
@@ -304,7 +347,6 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'topic' }, async ($, e) => ({
-    // A plugin's or a test's run carries no presentation.
-    text: await command($, e.args, e.presentation?.columns ?? EMPTY.columns),
+    text: await command($, e.args),
   }))
 }

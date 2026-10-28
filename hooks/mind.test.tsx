@@ -49,6 +49,26 @@ const usage = {
   cache_read_input_tokens: 0,
 }
 
+// A model whose answers the test hands out one at a time.
+function gatedModel(on: On): Array<(text: string) => void> {
+  const gates: Array<(text: string) => void> = []
+  on('model.complete', async () => {
+    const text = await new Promise<string>(resolve => gates.push(resolve))
+    return { value: { isAnswered: true, text, usage } }
+  })
+  return gates
+}
+
+function engine(on: On, id: () => string) {
+  on('command.register', () => ({ value: { command: 'topic' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: id() }))
+  on('session.turns', () => ({ value: 0 }))
+  on('session.messages', () => ({ value: [] }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+}
+
 describe('stack', () => {
   test('verdicts parse and reject what does not fit', async () => {
     expect(parseVerdict('{"action":"push","label":"lease 대기"}', 1)).toEqual({
@@ -119,6 +139,20 @@ describe('stack', () => {
     expect(trail(at('a', 'b'), 10)).toBe('a → b')
   })
 
+  test('a trail too wide even folded cuts the root and the current topic', async () => {
+    const long = (i: number) => '가나다라마바사아자차카' + String(i)
+    for (const budget of [12, 20, 30, 40, 50]) {
+      for (const n of [1, 2, 3, 5]) {
+        const line = trail(at(...Array.from({ length: n }, (_, i) => long(i))), budget)
+        expect(width(line)).toBeLessThanOrEqual(budget)
+        if (n > 1 && budget >= 20) {
+          expect(line.includes(' → ')).toBe(true)
+        }
+      }
+    }
+    expect(trail(at(long(0), long(1)), 30)).toBe('가나다라마바… → 가나다라마바…')
+  })
+
   test('the trail line shows the trail and a pending mark', async () => {
     expect(trailLine(EMPTY, 60)).toBe('(주제 없음)')
     expect(trailLine({ ...EMPTY, isJudging: true }, 60)).toBe('…')
@@ -144,15 +178,16 @@ describe('hooks', () => {
       '{"action":"pop","to":0}',
     ]
     const asked: string[] = []
+    const marked: boolean[] = []
 
     on('command.register', () => ({ value: { command: 'topic' } }))
     on('session.start', (_, e) => ({ cwd: e.cwd }))
     on('session.id', () => ({ value: 's1' }))
     on('session.turns', () => ({ value: 0 }))
     on('session.messages', () => ({ value: [] }))
-    on('ui.status', () => ({ value: undefined }))
     on('model.complete', (_, e) => {
       asked.push(e.prompt)
+      marked.push(e.systemBlocks?.at(-1)?.cache === true)
       return { value: { isAnswered: true, text: verdicts.shift() ?? '', usage } }
     })
     on('prompt.submit', (_, e) => ({ text: e.text }))
@@ -179,6 +214,9 @@ describe('hooks', () => {
     expect(log.length).toBe(3)
     expect(JSON.parse(log[2] ?? '{}').verdict).toEqual({ action: 'pop', to: 0 })
     expect(JSON.parse(log[2] ?? '{}').request).toBe(asked[2])
+    expect(JSON.parse(log[1] ?? '{}').after).toEqual(['fio bench', 'lease 대기'])
+    expect(JSON.parse(log[1] ?? '{}').rules).toMatch(/^[0-9a-f]{8}$/)
+    expect(marked).toEqual([true, true, true])
     expect(asked[1]?.includes('0: fio bench')).toBe(true)
     expect(lines).toEqual(['📚 fio bench', '📚 fio bench → lease 대기', '📚 fio bench'])
     expect((await ui.find({ type: 'Text', text: /shortcuts/ }))?.text).toBe('? for shortcuts')
@@ -196,7 +234,6 @@ describe('hooks', () => {
     on('session.id', () => ({ value: 's3' }))
     on('session.turns', () => ({ value: 0 }))
     on('session.messages', () => ({ value: [] }))
-    on('ui.status', () => ({ value: undefined }))
     on('model.complete', (_, e) => {
       asked.push(e.prompt)
       return { value: { isAnswered: true, text: '{"action":"push","label":"할일 확인"}', usage } }
@@ -226,7 +263,6 @@ describe('hooks', () => {
     on('session.id', () => ({ value: id }))
     on('session.turns', () => ({ value: 0 }))
     on('session.messages', () => ({ value: [] }))
-    on('ui.status', () => ({ value: undefined }))
     on('model.complete', () => ({
       value: { isAnswered: true, text: '{"action":"push","label":"fio bench"}', usage },
     }))
@@ -266,7 +302,6 @@ describe('hooks', () => {
     on('session.id', () => ({ value: 's2' }))
     on('session.turns', () => ({ value: 0 }))
     on('session.messages', () => ({ value: [] }))
-    on('ui.status', () => ({ value: undefined }))
     on('model.complete', () => ({
       value: { isAnswered: false, reason: 'api-error', status: 404, error: 'model_not_found' as const, usage },
     }))
@@ -286,6 +321,81 @@ describe('hooks', () => {
     expect(shown.text?.includes('실패 1')).toBe(true)
   })
 
+  test('a verdict that comes after /resume leaves both sessions as saved', async ($, on) => {
+    const clock = mock.clock(on)
+    mock.store(on)
+    mockFiles(on)
+    let id = 's5'
+    engine(on, () => id)
+    const gates = gatedModel(on)
+
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('fio bench 돌려줘'))
+    await clock.advance(5)
+    gates.shift()!('{"action":"push","label":"fio bench"}')
+    await clock.advance(5)
+
+    await $.prompt.submit(typed('lease가 안 잡히는데 누가 쥐고 있어?'))
+    await clock.advance(5)
+    await $.session.end({ reason: 'resume', sessionId: 's5', resume: { id: 's5' } })
+    gates.shift()!('{"action":"push","label":"lease 대기"}')
+    await clock.advance(5)
+    id = 's4'
+    await clock.advance(1000)
+    expect((await $.command.run(topic(''))).text?.includes('stack: (비어 있음)')).toBe(true)
+
+    await $.session.end({ reason: 'resume', sessionId: 's4', resume: { id: 's4' } })
+    id = 's5'
+    await clock.advance(1000)
+    const shown = (await $.command.run(topic(''))).text ?? ''
+    expect(shown.includes('1. fio bench')).toBe(true)
+    expect(shown.includes('2.')).toBe(false)
+  })
+
+  test('verdicts that come after /clear do not reach the new session', async ($, on) => {
+    const clock = mock.clock(on)
+    mock.store(on)
+    mockFiles(on)
+    let id = 'a1'
+    engine(on, () => id)
+    const gates = gatedModel(on)
+
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('fio bench 돌려줘'))
+    await clock.advance(5)
+    await $.prompt.submit(typed('lease가 안 잡히는데 누가 쥐고 있어?'))
+    await clock.advance(5)
+    await $.session.end({ reason: 'clear', sessionId: 'a1', resume: { id: 'a1' } })
+    id = 'a2'
+    gates.shift()!('{"action":"push","label":"fio bench"}')
+    await clock.advance(5)
+
+    // The second prompt, queued behind the first, is never sent.
+    expect(gates.length).toBe(0)
+    const shown = (await $.command.run(topic(''))).text ?? ''
+    expect(shown.includes('stack: (비어 있음)')).toBe(true)
+    expect(shown.includes('haiku 호출 0회')).toBe(true)
+  })
+
+  test('/topic push while a verdict is coming wins over it', async ($, on) => {
+    const clock = mock.clock(on)
+    mock.store(on)
+    mockFiles(on)
+    engine(on, () => 's7')
+    const gates = gatedModel(on)
+
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('fio bench 돌려줘'))
+    await clock.advance(5)
+    await $.command.run(topic('push 내 주제'))
+    gates.shift()!('{"action":"push","label":"fio bench"}')
+    await clock.advance(5)
+
+    const shown = (await $.command.run(topic(''))).text ?? ''
+    expect(shown.includes('1. 내 주제')).toBe(true)
+    expect(shown.includes('2.')).toBe(false)
+  })
+
   test('/topic push and pop edit the stack by hand', async ($, on) => {
     mock.store(on)
     mockFiles(on)
@@ -293,7 +403,6 @@ describe('hooks', () => {
     on('session.start', (_, e) => ({ cwd: e.cwd }))
     on('session.id', () => ({ value: 's3' }))
     on('session.turns', () => ({ value: 2 }))
-    on('ui.status', () => ({ value: undefined }))
 
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
     await $.command.run(topic('push fio bench'))

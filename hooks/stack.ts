@@ -14,11 +14,10 @@ export const EMPTY: Mind = {
   isHeld: false,
   isJudging: false,
   isRootDoubted: false,
-  columns: 80,
-  usage: { calls: 0, failures: 0, inputTokens: 0, outputTokens: 0 },
+  usage: { calls: 0, failures: 0, inputTokens: 0, cacheReadTokens: 0, outputTokens: 0 },
 }
 
-const HISTORY_CAP = 50
+const HISTORY_CAP = 10
 const LABEL_WIDTH = 24
 const SEP = ' → '
 
@@ -216,16 +215,23 @@ function cut(s: string, max: number): string {
   return out + '…'
 }
 
-// Root and current always stay; the middle gives way first.
+// Root and current always stay; the middle gives way first, then the
+// two labels themselves.
 export function trail(stack: Topic[], budget: number): string {
   const labels = stack.map(t => t.label)
   const full = labels.join(SEP)
-  if (labels.length <= 2 || width(full) <= budget) {
+  if (width(full) <= budget) {
     return full
   }
 
   const [root = '', ...rest] = labels
-  const suffix = ` (${labels.length})`
+  if (rest.length === 0) {
+    return cut(root, budget)
+  }
+  const current = rest.at(-1)!
+  const isFolded = rest.length > 1
+  const between = isFolded ? SEP + '…' + SEP : SEP
+  const suffix = isFolded ? ` (${labels.length})` : ''
   const tail: string[] = []
   let used = width(root + SEP + '…' + suffix)
   for (const label of [...rest].reverse()) {
@@ -236,10 +242,17 @@ export function trail(stack: Topic[], budget: number): string {
     tail.unshift(label)
     used += w
   }
+  if (isFolded && used <= budget) {
+    return [root, '…', ...tail].join(SEP) + suffix
+  }
 
-  return tail.length === rest.length
-    ? full
-    : [root, '…', ...tail].join(SEP) + suffix
+  const room = budget - width(between + suffix)
+  if (room < 2) {
+    return cut(full, budget)
+  }
+  const head = cut(root, Math.floor(room / 2))
+
+  return head + between + cut(current, room - width(head)) + suffix
 }
 
 // The trail drawn dim on its own row under the prompt's hint line.
@@ -250,7 +263,7 @@ export function trailLine(mind: Mind, room: number): string {
   if (mind.stack.length === 0) {
     return mind.isJudging ? '…' : '(주제 없음)' + suffix
   }
-  const budget = Math.max(20, Math.min(room, 120)) - width(suffix)
+  const budget = Math.min(room, 120) - width(suffix)
 
   return trail(mind.stack, budget) + suffix
 }
@@ -266,14 +279,14 @@ export function listing(mind: Mind): string {
       lines.push(`  ${i + 1}. ${t.label} (prompt #${t.turn})${mark}`)
     })
   }
-  const done = mind.history.slice(-10)
+  const done = mind.history.slice(-HISTORY_CAP)
   if (done.length > 0) {
     lines.push(`끝난 곁가지 (최근 ${done.length}개): ${done.map(t => t.label).join(', ')}`)
   }
   const u = mind.usage
   lines.push(
     `자동 판정: ${mind.isAuto ? '켜짐' : '꺼짐'}, haiku 호출 ${u.calls}회 (실패 ${u.failures}), ` +
-      `input ${u.inputTokens} / output ${u.outputTokens} token`,
+      `input ${u.inputTokens} (cache read ${u.cacheReadTokens}) / output ${u.outputTokens} token`,
   )
 
   return lines.join('\n')

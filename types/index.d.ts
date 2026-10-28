@@ -3,7 +3,9 @@ export type Topic = { label: string; turn: number }
 export type Usage = {
   calls: number
   failures: number
+  // All input tokens, those read from the prompt cache among them.
   inputTokens: number
+  cacheReadTokens: number
   outputTokens: number
 }
 
@@ -16,7 +18,6 @@ export type Mind = {
   // A switch kept the root: the next switch, with no return to the root
   // before it, replaces the root.
   isRootDoubted: boolean
-  columns: number
   usage: Usage
 }
 
