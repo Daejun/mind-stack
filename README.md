@@ -1,5 +1,9 @@
 # mind-stack
 
+```
+/plugin install mind-stack --marketplace Daejun/mind-stack
+```
+
 A Claude Code mod that keeps the topic stack of the conversation on a line under the prompt, so the task you started with stays in sight while you chase side issues.
 
 ```
