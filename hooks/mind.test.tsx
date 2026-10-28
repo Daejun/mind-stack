@@ -149,12 +149,18 @@ describe('hooks', () => {
       lines.push(await line())
     }
     await $.prompt.submit(typed('ㅇㅇ'))
+    await $.prompt.submit({
+      text: '<task-notification>\n<task-id>b1</task-id> completed</task-notification>',
+      wait: false,
+      origin: { kind: 'task-notification' },
+    })
     await clock.advance(5)
 
     expect(asked.length).toBe(3)
     const log = (files.get('/home/t/.claude/mind-stack/calls.jsonl') ?? '').trim().split('\n')
     expect(log.length).toBe(3)
     expect(JSON.parse(log[2] ?? '{}').verdict).toEqual({ action: 'pop', to: 0 })
+    expect(JSON.parse(log[2] ?? '{}').request).toBe(asked[2])
     expect(asked[1]?.includes('0: fio bench')).toBe(true)
     expect(lines).toEqual(['📚 fio bench', '📚 fio bench → lease 대기', '📚 fio bench'])
     expect((await ui.find({ type: 'Text', text: /shortcuts/ }))?.text).toBe('? for shortcuts')

@@ -8,7 +8,7 @@ A Claude Code mod that keeps the topic stack of the conversation on a line under
   📚 fio bench → lease wait → hook fix
 ```
 
-Each prompt you send is classified by one small `haiku` call, off the prompt's path (the turn never waits for it):
+Each prompt you type is classified by one small `haiku` call, off the prompt's path (the turn never waits for it). Background task notifications, scheduled prompts and messages from other sessions are not judged:
 
 | verdict | meaning | stack |
 | --- | --- | --- |
@@ -57,7 +57,7 @@ The prompt right after a manual edit is not classified, so the edit stands. With
 
 One `haiku` call per prompt, effort `low`, with no conversation history: the stack labels, the last 400 characters of the previous reply and the first 600 characters of the prompt. Measured over 26 calls: about 860 input and 180 output tokens per call, most of the output being the model's thinking. The result is drawn under the prompt only and never goes into the conversation's context. A failed or timed-out call (8 s) leaves the stack as it was.
 
-Each call is also written as one JSON line to `~/.claude/mind-stack/calls.jsonl` (the newest 200 kept): time, latency, the stack before, the first 60 characters of the prompt, the verdict and the tokens. `/topic log` shows the totals.
+Each call is also written as one JSON line to `~/.claude/mind-stack/calls.jsonl` (the newest 200 kept): time, latency, the stack before, the first 60 characters of the prompt, the whole request sent to `haiku`, its answer, the verdict and the tokens. `/topic log` shows the totals.
 
 ## Notes
 

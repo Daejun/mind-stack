@@ -25,6 +25,8 @@ const MIN_PROMPT = 10
 const STORE_INDEX = 'sessions'
 const STORE_CAP = 30
 const LOG_CAP = 200
+// Where a prompt the developer wrote comes from.
+const TYPED: ReadonlySet<string> = new Set(['composer', 'bridge'])
 
 type $ = EngineInterface
 
@@ -75,10 +77,11 @@ async function judge($: $, prompt: string, reply: string, turn: number) {
   await change($, m => ({ ...m, isJudging: true }))
 
   const startedAt = await $.clock.now()
+  const asked = request(before.stack, reply, prompt)
   const r = await $.model.complete({
     model: MODEL,
     system: RULES,
-    prompt: request(before.stack, reply, prompt),
+    prompt: asked,
     maxTokens: 512,
     effort: 'low',
     timeoutMs: 8000,
@@ -118,7 +121,10 @@ async function judge($: $, prompt: string, reply: string, turn: number) {
     turn,
     stack: before.stack.map(t => t.label),
     prompt: prompt.slice(0, 60),
+    // The whole request, so a logged call can be judged again.
+    request: asked,
     verdict: verdict ?? null,
+    text: r.isAnswered ? r.text : null,
     inputTokens: input,
     outputTokens: u.output_tokens,
     ...(r.isAnswered ? {} : { reason: r.reason }),
@@ -219,7 +225,9 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (e.command !== undefined || e.isMeta) {
+    // Task notifications, peers and scheduled prompts are not the developer
+    // changing topic.
+    if (e.command !== undefined || e.isMeta || !TYPED.has(e.origin.kind)) {
       return next(e)
     }
     const m = await read($, mind)
