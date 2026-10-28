@@ -13,6 +13,9 @@ export type Mind = {
   isAuto: boolean
   isHeld: boolean
   isJudging: boolean
+  // A switch kept the root: the next switch, with no return to the root
+  // before it, replaces the root.
+  isRootDoubted: boolean
   columns: number
   usage: Usage
 }

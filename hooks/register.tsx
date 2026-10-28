@@ -17,7 +17,7 @@ import {
 // Change the tag when Mind's fields change: it declines what an earlier
 // version stored, which outlives a reload.
 const mind = atom({ plugin: 'mind-stack', key: 'mind' } as const, EMPTY, {
-  shape: 'mind-1',
+  shape: 'mind-2',
 })
 
 const MODEL = 'haiku'
@@ -135,7 +135,8 @@ async function command($: $, args: string, columns: number): Promise<string> {
   const [sub = '', ...rest] = args.trim().split(/\s+/)
   const word = rest.join(' ')
   const m = await read($, mind)
-  const held = (next: Mind): Mind => ({ ...next, columns, isHeld: true })
+  // A stack set by hand is the developer's own: no switch doubts its root.
+  const held = (next: Mind): Mind => ({ ...next, columns, isHeld: true, isRootDoubted: false })
 
   switch (sub) {
     case '':

@@ -78,8 +78,25 @@ describe('stack', () => {
     expect(m.history.map(t => t.label)).toEqual(['lease 대기', 'procwait'])
 
     m = apply(m, { action: 'switch', label: '주간보고' }, 5)
-    expect(m.stack.map(t => t.label)).toEqual(['주간보고'])
-    expect(m.history.map(t => t.label)).toEqual(['lease 대기', 'procwait', 'fio bench'])
+    expect(m.stack.map(t => t.label)).toEqual(['fio bench', '주간보고'])
+    expect(m.history.map(t => t.label)).toEqual(['lease 대기', 'procwait'])
+  })
+
+  test('a second switch replaces the root, a return to the root clears the doubt', async () => {
+    let m = apply({ ...EMPTY, stack: at('main fetch') }, { action: 'switch', label: 'PR 목록' }, 2)
+    m = apply(m, { action: 'push', label: '#828 답글' }, 3)
+    expect(m.stack.map(t => t.label)).toEqual(['main fetch', 'PR 목록', '#828 답글'])
+    expect(m.isRootDoubted).toBe(true)
+
+    m = apply(m, { action: 'switch', label: '#840 정리' }, 4)
+    expect(m.stack.map(t => t.label)).toEqual(['PR 목록', '#840 정리'])
+    expect(m.history.map(t => t.label)).toEqual(['main fetch', '#828 답글'])
+
+    let kept = apply({ ...EMPTY, stack: at('fio bench') }, { action: 'switch', label: 'agent.md' }, 2)
+    kept = apply(kept, { action: 'pop', to: 0 }, 3)
+    expect(kept.isRootDoubted).toBe(false)
+    kept = apply(kept, { action: 'switch', label: 'hostlease' }, 4)
+    expect(kept.stack.map(t => t.label)).toEqual(['fio bench', 'hostlease'])
   })
 
   test('a sibling closes the finished side topic and opens a new one', async () => {

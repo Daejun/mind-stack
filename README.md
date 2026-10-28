@@ -12,11 +12,11 @@ Each prompt you type is classified by one small `haiku` call, off the prompt's p
 
 | verdict | meaning | stack |
 | --- | --- | --- |
-| `same` | continues the current topic | unchanged |
+| `same` | a follow-up, correction or answer about what the last reply was working on | unchanged |
 | `push` | a sub-problem of the current topic | label pushed |
 | `pop` | back to an earlier topic | topics above it are closed |
 | `sibling` | the current side topic is done; a new sub-problem of an earlier topic | topics above that one are closed, label pushed |
-| `switch` | unrelated new work | new root |
+| `switch` | unrelated new work | the root stays and the new topic goes under it; a second switch with no return to the root in between makes the first switch's topic the root |
 
 Prompts shorter than 10 characters and slash commands are not classified. When the line is too narrow, the middle gives way and the root and the current topic stay: `fio bench → … → hook fix (6)`.
 

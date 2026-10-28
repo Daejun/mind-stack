@@ -13,6 +13,7 @@ export const EMPTY: Mind = {
   isAuto: true,
   isHeld: false,
   isJudging: false,
+  isRootDoubted: false,
   columns: 80,
   usage: { calls: 0, failures: 0, inputTokens: 0, outputTokens: 0 },
 }
@@ -38,7 +39,8 @@ Step 2. Decide whether the message continues T's own work or opens a new, narrow
 
 A message about something the topic in progress does not cover does not belong to it, even when it comes right after it.
 When the stack is empty, answer "push" with a label for the new message.
-When unsure between "same" and another answer, answer "same".
+"same" is only a follow-up, a correction, an acknowledgement or an answer to the assistant's question, about the request the last reply was working on.
+A message that asks for a different thing (another command, question, file or component) opens a topic, even in the same area.
 
 For example, with the stack "0: fio bench", "1: lease wait":
 "the lease is held by whom?" is {"action": "same"};
@@ -131,6 +133,10 @@ export function apply(mind: Mind, v: Verdict, turn: number): Mind {
       : mind
   }
 
+  // Going back to the root shows it is still the starting point.
+  const isRootDoubted =
+    (v.action === 'pop' || v.action === 'sibling') && v.to === 0 ? false : mind.isRootDoubted
+
   switch (v.action) {
     case 'same':
       return mind
@@ -141,21 +147,30 @@ export function apply(mind: Mind, v: Verdict, turn: number): Mind {
     case 'pop':
       return {
         ...mind,
+        isRootDoubted,
         stack: stack.slice(0, v.to + 1),
         history: closed(history, stack.slice(v.to + 1)),
       }
     case 'sibling':
       return {
         ...mind,
+        isRootDoubted,
         stack: [...stack.slice(0, v.to + 1), { label: v.label, turn }],
         history: closed(history, stack.slice(v.to + 1)),
       }
-    case 'switch':
+    case 'switch': {
+      // haiku says "switch" far more often than the developer leaves the
+      // work, and a switch would wipe the root. The first one keeps the root
+      // and opens the new topic under it; a second one with no return to the
+      // root in between makes the topic the first switch opened the root.
+      const base = mind.isRootDoubted && stack.length > 1 ? stack.slice(1) : stack
       return {
         ...mind,
-        stack: [{ label: v.label, turn }],
-        history: closed(history, stack),
+        isRootDoubted: true,
+        stack: [base[0]!, { label: v.label, turn }],
+        history: closed(history, [...stack.slice(0, stack.length - base.length), ...base.slice(1)]),
       }
+    }
   }
 }
 
