@@ -48,6 +48,21 @@ async function save($: $): Promise<void> {
   await $.store.set(STORE_INDEX, next.slice(-STORE_CAP))
 }
 
+// Brings back the stack the running session saved. A resume in the running
+// process, like a /clear, goes on under another id with no session.start, so
+// this runs wherever the state can be written: at the start, at a prompt and
+// at /topic.
+async function restore($: $): Promise<void> {
+  const m = await read($, mind)
+  if (m.stack.length > 0) {
+    return
+  }
+  const saved = (await $.store.get(`mind:${await $.session.id()}`)) as Mind | undefined
+  if (saved && Array.isArray(saved.stack) && saved.stack.length > 0) {
+    await update($, mind, () => ({ ...EMPTY, ...saved, isJudging: false }))
+  }
+}
+
 async function change($: $, fn: (m: Mind) => Mind): Promise<void> {
   // The hint line reads the state while drawing, so a write redraws it.
   await update($, mind, fn)
@@ -132,6 +147,7 @@ async function judge($: $, prompt: string, reply: string, turn: number) {
 }
 
 async function command($: $, args: string, columns: number): Promise<string> {
+  await restore($)
   const [sub = '', ...rest] = args.trim().split(/\s+/)
   const word = rest.join(' ')
   const m = await read($, mind)
@@ -202,15 +218,7 @@ export const register: Register = (on, options) => {
       argumentHint: '[log | push <label> | pop [n] | rename <label> | reset | off | on]',
       immediate: true,
     })
-    const m = await read($, mind)
-    if (m.stack.length === 0) {
-      const saved = (await $.store.get(`mind:${await $.session.id()}`)) as
-        | Mind
-        | undefined
-      if (saved && Array.isArray(saved.stack)) {
-        await update($, mind, () => ({ ...EMPTY, ...saved, isJudging: false }))
-      }
-    }
+    await restore($)
     // 0.1.0 drew the trail as a status line; clear one left from then.
     $.ui.status(undefined)
 
@@ -218,7 +226,8 @@ export const register: Register = (on, options) => {
   })
 
   on('session.end', async ($, e, next) => {
-    if (e.reason === 'clear') {
+    // The next session's stack, if it saved one, comes back through restore().
+    if (e.reason === 'clear' || e.reason === 'resume') {
       await update($, mind, x => ({ ...EMPTY, isAuto: x.isAuto, columns: x.columns }))
     }
 
@@ -231,6 +240,7 @@ export const register: Register = (on, options) => {
     if (e.command !== undefined || e.isMeta || !TYPED.has(e.origin.kind)) {
       return next(e)
     }
+    await restore($)
     const m = await read($, mind)
     if (!m.isAuto) {
       return next(e)
@@ -261,9 +271,6 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const m = await read($, mind)
     const line = trailLine(m, (e.viewport?.columns ?? m.columns) - 4 - width(icon))
-    if (line === undefined) {
-      return next(e)
-    }
     const { Box, Text } = $.ui.resolve(e)
 
     return (

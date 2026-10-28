@@ -79,7 +79,8 @@ prompt 하나에 `haiku` 호출 하나(effort `low`)이고 대화 history는 보
 ## 참고
 
 - 명령 출력은 한국어입니다. label은 쓰는 언어를 따라갑니다.
-- stack은 session마다 따로 두고, resume해도 남습니다. `/clear`하면 비웁니다.
+- stack은 session마다 따로 두고, resume해도 남습니다(`claude --resume`과 실행 중의 `/resume` 모두). `/clear`하면 비웁니다.
+- stack이 비어 있어도 `(주제 없음)`으로 한 줄을 차지해서, 첫 주제가 생길 때 입력창이 움직이지 않습니다.
 - test: `claude plugin test .`
 
 ---
@@ -159,5 +160,6 @@ Each call is also written as one JSON line to `~/.claude/mind-stack/calls.jsonl`
 ### Notes
 
 - The command output and listings are in Korean; labels follow the language you write in.
-- The stack is kept per session and survives a resume; `/clear` empties it.
+- The stack is kept per session and survives a resume (`claude --resume` or `/resume` in a running session); `/clear` empties it.
+- An empty stack still takes its row, drawn as `(주제 없음)`, so the prompt does not move when the first topic comes.
 - Tests: `claude plugin test .`

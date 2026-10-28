@@ -120,7 +120,8 @@ describe('stack', () => {
   })
 
   test('the trail line shows the trail and a pending mark', async () => {
-    expect(trailLine(EMPTY, 60)).toBe(undefined)
+    expect(trailLine(EMPTY, 60)).toBe('(주제 없음)')
+    expect(trailLine({ ...EMPTY, isJudging: true }, 60)).toBe('…')
     expect(trailLine({ ...EMPTY, stack: at('fio bench'), isJudging: true }, 60)).toBe(
       'fio bench …',
     )
@@ -213,6 +214,37 @@ describe('hooks', () => {
     expect(shown.text?.includes('1. 할일 확인')).toBe(true)
   })
 
+  test('a resume in the running process shows the stack that session saved', async ($, on) => {
+    const clock = mock.clock(on)
+    mock.store(on)
+    mockFiles(on)
+    let id = 's4'
+
+    on('command.register', () => ({ value: { command: 'topic' } }))
+    on('session.start', (_, e) => ({ cwd: e.cwd }))
+    on('session.id', () => ({ value: id }))
+    on('session.turns', () => ({ value: 0 }))
+    on('session.messages', () => ({ value: [] }))
+    on('ui.status', () => ({ value: undefined }))
+    on('model.complete', () => ({
+      value: { isAnswered: true, text: '{"action":"push","label":"fio bench"}', usage },
+    }))
+    on('prompt.submit', (_, e) => ({ text: e.text }))
+    on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('fio bench 돌려줘'))
+    await clock.advance(5)
+
+    await $.session.end({ reason: 'resume', sessionId: 's4', resume: { id: 's4' } })
+    id = 's5'
+    expect((await $.command.run(topic(''))).text?.includes('stack: (비어 있음)')).toBe(true)
+
+    await $.session.end({ reason: 'resume', sessionId: 's5', resume: { id: 's5' } })
+    id = 's4'
+    expect((await $.command.run(topic(''))).text?.includes('1. fio bench')).toBe(true)
+  })
+
   test('a failed call keeps the line and the conversation going', async ($, on) => {
     const clock = mock.clock(on)
     mock.store(on)
@@ -238,6 +270,7 @@ describe('hooks', () => {
     const ui = await $.ui.mount(HINT)
     expect((await ui.find({ type: 'Text' }))?.text).toBe('? for shortcuts')
     expect(await ui.find({ type: 'Text', text: /fio/ })).toBe(undefined)
+    expect((await ui.find({ type: 'Text', text: /주제 없음/ }))?.text).toBe('📚 (주제 없음)')
     await ui.unmount()
     const shown = await $.command.run(topic('log'))
     expect(shown.text?.includes('실패 1')).toBe(true)

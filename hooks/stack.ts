@@ -243,11 +243,13 @@ export function trail(stack: Topic[], budget: number): string {
 }
 
 // The trail drawn dim on its own row under the prompt's hint line.
-export function trailLine(mind: Mind, room: number): string | undefined {
-  if (mind.stack.length === 0) {
-    return mind.isJudging ? '…' : undefined
-  }
+// An empty stack still takes its row, so the prompt does not jump when the
+// first topic comes.
+export function trailLine(mind: Mind, room: number): string {
   const suffix = (mind.isAuto ? '' : ' (manual)') + (mind.isJudging ? ' …' : '')
+  if (mind.stack.length === 0) {
+    return mind.isJudging ? '…' : '(주제 없음)' + suffix
+  }
   const budget = Math.max(20, Math.min(room, 120)) - width(suffix)
 
   return trail(mind.stack, budget) + suffix
