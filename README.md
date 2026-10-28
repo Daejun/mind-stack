@@ -18,7 +18,7 @@ Each prompt you type is classified by one small `haiku` call, off the prompt's p
 | `sibling` | the current side topic is done; a new sub-problem of an earlier topic | topics above that one are closed, label pushed |
 | `switch` | unrelated new work | the root stays and the new topic goes under it; a second switch with no return to the root in between makes the first switch's topic the root |
 
-Prompts shorter than 10 characters and slash commands are not classified. When the line is too narrow, the middle gives way and the root and the current topic stay: `fio bench → … → hook fix (6)`.
+Slash commands are not classified, nor are prompts shorter than 10 characters once the stack holds a topic (the first prompt of a session is always classified, so a short one such as "할일 확인좀" still names the root). When the line is too narrow, the middle gives way and the root and the current topic stay: `fio bench → … → hook fix (6)`.
 
 ## Install
 

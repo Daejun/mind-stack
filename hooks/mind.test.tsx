@@ -184,6 +184,35 @@ describe('hooks', () => {
     await ui.unmount()
   })
 
+  test('a short first prompt names the root, later short ones are not judged', async ($, on) => {
+    const clock = mock.clock(on)
+    mock.store(on)
+    mockFiles(on)
+    const asked: string[] = []
+
+    on('command.register', () => ({ value: { command: 'topic' } }))
+    on('session.start', (_, e) => ({ cwd: e.cwd }))
+    on('session.id', () => ({ value: 's3' }))
+    on('session.turns', () => ({ value: 0 }))
+    on('session.messages', () => ({ value: [] }))
+    on('ui.status', () => ({ value: undefined }))
+    on('model.complete', (_, e) => {
+      asked.push(e.prompt)
+      return { value: { isAnswered: true, text: '{"action":"push","label":"할일 확인"}', usage } }
+    })
+    on('prompt.submit', (_, e) => ({ text: e.text }))
+
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('할일 확인좀'))
+    await clock.advance(5)
+    await $.prompt.submit(typed('v5를 내야하나?'))
+    await clock.advance(5)
+
+    expect(asked.length).toBe(1)
+    const shown = await $.command.run(topic(''))
+    expect(shown.text?.includes('1. 할일 확인')).toBe(true)
+  })
+
   test('a failed call keeps the line and the conversation going', async ($, on) => {
     const clock = mock.clock(on)
     mock.store(on)

@@ -240,7 +240,9 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     const text = e.text.trim()
-    if (text.length < MIN_PROMPT) {
+    // A short prompt is mostly a reply ("ㅇㅇ", "ㄱㄱ"), but the first one
+    // ("할일 확인좀") is all there is to name the root by.
+    if (text === '' || (text.length < MIN_PROMPT && m.stack.length > 0)) {
       return next(e)
     }
     const reply = lastReply(await $.session.messages())
