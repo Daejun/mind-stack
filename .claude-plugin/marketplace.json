@@ -1,0 +1,5 @@
+{
+  "name": "mind-stack",
+  "owner": { "name": "Daejun" },
+  "plugins": [{ "name": "mind-stack", "source": "./" }]
+}
