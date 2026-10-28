@@ -4,6 +4,7 @@ export type Verdict =
   | { action: 'same' }
   | { action: 'push'; label: string }
   | { action: 'pop'; to: number }
+  | { action: 'sibling'; to: number; label: string }
   | { action: 'switch'; label: string }
 
 export const EMPTY: Mind = {
@@ -22,21 +23,35 @@ const SEP = ' → '
 
 export const RULES = `You track the topic stack of a conversation between a developer and a coding assistant.
 The stack lists the topics from the one the developer started with (index 0) down to the one in progress (the last index).
-Given the stack, the end of the assistant's last reply and the developer's new message, decide what the new message does:
+Each topic came up while working on the one before it.
 
-- "same": it continues the topic in progress (follow-ups, confirmations, small corrections, the next step of the same work).
-- "push": it opens a sub-problem that came up while working on the topic in progress (an obstacle, a side question, a tool or environment problem). Give it a label.
-- "pop": it goes back to an earlier topic of the stack, the ones above it being done or dropped. "to" is that topic's index.
-- "switch": it starts work unrelated to every topic of the stack. Give it a label.
+Decide what the developer's new message does, in two steps.
 
+Step 1. Find the topic T the new message belongs to: the deepest topic of the stack that the message is about or that the message's problem came out of.
+If it belongs to no topic of the stack, answer "switch" with a label.
+
+Step 2. Decide whether the message continues T's own work or opens a new, narrower problem under T.
+- Continues T, and T is the last topic: "same".
+- Continues T, and T is an earlier topic: "pop" with "to" = T's index. The topics above T are done.
+- Opens a new problem under T, and T is the last topic: "push" with a label.
+- Opens a new problem under T, and T is an earlier topic: "sibling" with "to" = T's index and a label. The topics above T are done.
+
+A message about something the topic in progress does not cover does not belong to it, even when it comes right after it.
 When the stack is empty, answer "push" with a label for the new message.
-When unsure, answer "same".
+When unsure between "same" and another answer, answer "same".
+
+For example, with the stack "0: fio bench", "1: lease wait":
+"the lease is held by whom?" is {"action": "same"};
+"why does lease-master print nothing?" is {"action": "push", "label": "lease-master"};
+"the lease works now, run the bench again" is {"action": "pop", "to": 0};
+"the lease works now. why does the bench output lack the latency column?" is {"action": "sibling", "to": 0, "label": "latency column"};
+"let's write the weekly report" is {"action": "switch", "label": "weekly report"}.
 
 A label is a noun phrase of 2 to 4 words, at most about 16 characters, in the language the developer writes in.
 Keep technical terms, commands and identifiers in English as the developer writes them, and reuse the developer's own words.
 
 Answer with one JSON object and nothing else:
-{"action": "same" | "push" | "pop" | "switch", "to": <index, for pop>, "label": "<label, for push and switch>"}`
+{"action": "same" | "push" | "pop" | "sibling" | "switch", "to": <index, for pop and sibling>, "label": "<label, for push, sibling and switch>"}`
 
 export function request(stack: Topic[], reply: string, prompt: string): string {
   const listed =
@@ -89,6 +104,13 @@ export function parseVerdict(text: string, depth: number): Verdict | undefined {
         ? { action: 'pop', to }
         : undefined
     }
+    case 'sibling': {
+      const to = Number(raw.to)
+
+      return label !== undefined && Number.isInteger(to) && to >= 0 && to < depth
+        ? { action: 'sibling', to, label }
+        : undefined
+    }
     default:
       return undefined
   }
@@ -102,7 +124,7 @@ export function apply(mind: Mind, v: Verdict, turn: number): Mind {
   const { stack, history } = mind
 
   if (stack.length === 0) {
-    return v.action === 'push' || v.action === 'switch'
+    return v.action === 'push' || v.action === 'sibling' || v.action === 'switch'
       ? { ...mind, stack: [{ label: v.label, turn }] }
       : mind
   }
@@ -118,6 +140,12 @@ export function apply(mind: Mind, v: Verdict, turn: number): Mind {
       return {
         ...mind,
         stack: stack.slice(0, v.to + 1),
+        history: closed(history, stack.slice(v.to + 1)),
+      }
+    case 'sibling':
+      return {
+        ...mind,
+        stack: [...stack.slice(0, v.to + 1), { label: v.label, turn }],
         history: closed(history, stack.slice(v.to + 1)),
       }
     case 'switch':
@@ -137,7 +165,9 @@ function cellWidth(cp: number): number {
     (cp >= 0xf900 && cp <= 0xfaff) ||
     (cp >= 0xfe30 && cp <= 0xfe4f) ||
     (cp >= 0xff00 && cp <= 0xff60) ||
-    (cp >= 0xffe0 && cp <= 0xffe6)
+    (cp >= 0xffe0 && cp <= 0xffe6) ||
+    (cp >= 0x2600 && cp <= 0x27bf) ||
+    (cp >= 0x1f300 && cp <= 0x1faff)
 
   return isWide ? 2 : 1
 }
@@ -195,17 +225,13 @@ export function trail(stack: Topic[], budget: number): string {
     : [root, '…', ...tail].join(SEP) + suffix
 }
 
-// The engine heads the line with the mod's name ("mind-stack: "), so the
-// line itself is the trail alone.
-const ENGINE_PREFIX = 'mind-stack: '
-
-export function statusText(mind: Mind): string | undefined {
+// The trail drawn dim on its own row under the prompt's hint line.
+export function trailLine(mind: Mind, room: number): string | undefined {
   if (mind.stack.length === 0) {
     return mind.isJudging ? '…' : undefined
   }
   const suffix = (mind.isAuto ? '' : ' (manual)') + (mind.isJudging ? ' …' : '')
-  const budget =
-    Math.max(30, Math.min(mind.columns - 10, 120)) - width(ENGINE_PREFIX + suffix)
+  const budget = Math.max(20, Math.min(room, 120)) - width(suffix)
 
   return trail(mind.stack, budget) + suffix
 }

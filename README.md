@@ -1,9 +1,11 @@
 # mind-stack
 
-A Claude Code mod that keeps the topic stack of the conversation in the status line under the prompt, so the task you started with stays in sight while you chase side issues.
+A Claude Code mod that keeps the topic stack of the conversation on a line under the prompt, so the task you started with stays in sight while you chase side issues.
 
 ```
-mind-stack: fio bench → lease wait → hook fix
+> _
+  ? for shortcuts
+  📚 fio bench → lease wait → hook fix
 ```
 
 Each prompt you send is classified by one small `haiku` call, off the prompt's path (the turn never waits for it):
@@ -13,6 +15,7 @@ Each prompt you send is classified by one small `haiku` call, off the prompt's p
 | `same` | continues the current topic | unchanged |
 | `push` | a sub-problem of the current topic | label pushed |
 | `pop` | back to an earlier topic | topics above it are closed |
+| `sibling` | the current side topic is done; a new sub-problem of an earlier topic | topics above that one are closed, label pushed |
 | `switch` | unrelated new work | new root |
 
 Prompts shorter than 10 characters and slash commands are not classified. When the line is too narrow, the middle gives way and the root and the current topic stay: `fio bench → … → hook fix (6)`.
@@ -46,9 +49,15 @@ In the desktop app, where `/plugin` does not run: click + next to the prompt box
 
 The prompt right after a manual edit is not classified, so the edit stands. With automatic classification off, the line ends in `(manual)`.
 
+## Settings
+
+`/config` has one row for the mod, Icon: the mark drawn before the trail (📚 🥞 🍡 🪆 🧠 🐾, or none).
+
 ## Cost
 
-One `haiku` call per prompt, effort `low`, with no conversation history: the stack labels, the last 400 characters of the previous reply and the first 600 characters of the prompt. Measured: about 800 input and 30 to 350 output tokens per call. The result goes to the status line only and never into the conversation's context. A failed or timed-out call (8 s) leaves the stack as it was.
+One `haiku` call per prompt, effort `low`, with no conversation history: the stack labels, the last 400 characters of the previous reply and the first 600 characters of the prompt. Measured over 26 calls: about 860 input and 180 output tokens per call, most of the output being the model's thinking. The result is drawn under the prompt only and never goes into the conversation's context. A failed or timed-out call (8 s) leaves the stack as it was.
+
+Each call is also written as one JSON line to `~/.claude/mind-stack/calls.jsonl` (the newest 200 kept): time, latency, the stack before, the first 60 characters of the prompt, the verdict and the tokens. `/topic log` shows the totals.
 
 ## Notes
 

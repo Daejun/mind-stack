@@ -10,7 +10,8 @@ import {
   listing,
   parseVerdict,
   request,
-  statusText,
+  trailLine,
+  width,
 } from './stack'
 
 // Change the tag when Mind's fields change: it declines what an earlier
@@ -23,6 +24,7 @@ const MODEL = 'haiku'
 const MIN_PROMPT = 10
 const STORE_INDEX = 'sessions'
 const STORE_CAP = 30
+const LOG_CAP = 200
 
 type $ = EngineInterface
 
@@ -30,10 +32,6 @@ function lastReply(messages: readonly SessionMessage[]): string {
   const m = messages.findLast(one => one.role === 'assistant' && one.text !== '')
 
   return m?.text ?? ''
-}
-
-async function show($: $): Promise<void> {
-  $.ui.status(statusText(await read($, mind)))
 }
 
 // A copy per session in $.store, so a resumed session finds its stack again.
@@ -49,15 +47,34 @@ async function save($: $): Promise<void> {
 }
 
 async function change($: $, fn: (m: Mind) => Mind): Promise<void> {
+  // The hint line reads the state while drawing, so a write redraws it.
   await update($, mind, fn)
-  await show($)
   await save($)
+}
+
+async function logPath($: $): Promise<string | undefined> {
+  const home = await $.env.get('HOME')
+
+  return home ? `${home}/.claude/mind-stack/calls.jsonl` : undefined
+}
+
+// One line per haiku call, the newest LOG_CAP kept. Kept out of the
+// conversation: /topic shows totals alone.
+async function logCall($: $, row: Record<string, unknown>): Promise<void> {
+  const path = await logPath($)
+  if (path === undefined) {
+    return
+  }
+  const old = (await $.fs.exists(path)) ? String(await $.fs.read(path)) : ''
+  const lines = [...old.split('\n').filter(line => line !== ''), JSON.stringify(row)]
+  await $.fs.write(path, lines.slice(-LOG_CAP).join('\n') + '\n')
 }
 
 async function judge($: $, prompt: string, reply: string, turn: number) {
   const before = await read($, mind)
   await change($, m => ({ ...m, isJudging: true }))
 
+  const startedAt = await $.clock.now()
   const r = await $.model.complete({
     model: MODEL,
     system: RULES,
@@ -92,6 +109,20 @@ async function judge($: $, prompt: string, reply: string, turn: number) {
       },
     }
   })
+
+  // A log that cannot be written costs the judgment nothing.
+  await logCall($, {
+    at: new Date(startedAt).toISOString(),
+    ms: (await $.clock.now()) - startedAt,
+    session: await $.session.id(),
+    turn,
+    stack: before.stack.map(t => t.label),
+    prompt: prompt.slice(0, 60),
+    verdict: verdict ?? null,
+    inputTokens: input,
+    outputTokens: u.output_tokens,
+    ...(r.isAnswered ? {} : { reason: r.reason }),
+  }).catch(() => undefined)
 }
 
 async function command($: $, args: string, columns: number): Promise<string> {
@@ -104,7 +135,7 @@ async function command($: $, args: string, columns: number): Promise<string> {
     case '':
     case 'log':
       await change($, x => ({ ...x, columns }))
-      return listing(await read($, mind))
+      return `${listing(await read($, mind))}\n호출별 기록: ${(await logPath($)) ?? '(HOME 없음)'}`
     case 'push': {
       const label = cleanLabel(word)
       if (label === undefined) {
@@ -150,7 +181,10 @@ async function command($: $, args: string, columns: number): Promise<string> {
   }
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  const icon =
+    typeof options.icon === 'string' && options.icon !== 'none' ? `${options.icon} ` : ''
+
   // Judgments run one at a time, in the order the prompts were sent.
   let queue: Promise<void> = Promise.resolve()
 
@@ -170,7 +204,8 @@ export const register: Register = on => {
         await update($, mind, () => ({ ...EMPTY, ...saved, isJudging: false }))
       }
     }
-    await show($)
+    // 0.1.0 drew the trail as a status line; clear one left from then.
+    $.ui.status(undefined)
 
     return next(e)
   })
@@ -178,7 +213,6 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
       await update($, mind, x => ({ ...EMPTY, isAuto: x.isAuto, columns: x.columns }))
-      await show($)
     }
 
     return next(e)
@@ -211,6 +245,27 @@ export const register: Register = on => {
     })
 
     return next(e)
+  })
+
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    const m = await read($, mind)
+    const line = trailLine(m, (e.viewport?.columns ?? m.columns) - 4 - width(icon))
+    if (line === undefined) {
+      return next(e)
+    }
+    const { Box, Text } = $.ui.resolve(e)
+
+    return (
+      <Box flexDirection="column">
+        {await next(e)}
+        <Box paddingLeft={2}>
+          <Text dimColor>
+            {icon}
+            {line}
+          </Text>
+        </Box>
+      </Box>
+    )
   })
 
   on('command.run', { command: 'topic' }, async ($, e) => ({
