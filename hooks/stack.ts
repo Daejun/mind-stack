@@ -48,6 +48,8 @@ For example, with the stack "0: fio bench", "1: lease wait":
 "let's write the weekly report" is {"action": "switch", "label": "weekly report"}.
 
 A label is a noun phrase of 2 to 4 words, at most about 16 characters, in the language the developer writes in.
+Name the specific task or problem the message opens, not the area it belongs to:
+"#512 리뷰 답글" rather than "PR 작업", "lease 대기" rather than "bench 환경".
 Keep technical terms, commands and identifiers in English as the developer writes them, and reuse the developer's own words.
 
 Answer with one JSON object and nothing else:
