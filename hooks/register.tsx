@@ -126,7 +126,7 @@ async function judge($: $, prompt: string, reply: string, turn: number, hasLeft:
     prompt: asked,
     maxTokens: 512,
     effort: 'low',
-    timeoutMs: 8000,
+    timeoutMs: 20000,
   })
   const verdict = r.isAnswered
     ? parseVerdict(r.text, before.stack.length)

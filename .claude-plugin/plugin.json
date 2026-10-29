@@ -1,6 +1,6 @@
 {
   "name": "mind-stack",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Shows the conversation's topic stack (root → … → current) on a row under the prompt",
   "types": "./types/index.d.ts",
   "license": "MIT",
