@@ -19,7 +19,9 @@ export const EMPTY: Mind = {
 
 const HISTORY_CAP = 10
 const LABEL_WIDTH = 24
-const SEP = ' → '
+export const SEP = ' → '
+// The fewest cells the root keeps when the current topic needs the room.
+const ROOT_MIN = 6
 
 export const RULES = `You track the topic stack of a conversation between a developer and a coding assistant.
 The stack lists the topics from the one the developer started with (index 0) down to the one in progress (the last index).
@@ -246,11 +248,14 @@ export function trail(stack: Topic[], budget: number): string {
     return [root, '…', ...tail].join(SEP) + suffix
   }
 
+  // The current topic is what the row is for: it keeps its width and the
+  // root gives way first, down to a few cells; past that both are cut.
   const room = budget - width(between + suffix)
-  if (room < 2) {
-    return cut(full, budget)
+  const rootMin = Math.min(width(root), ROOT_MIN)
+  if (room < rootMin + 2) {
+    return cut(current + suffix, budget)
   }
-  const head = cut(root, Math.floor(room / 2))
+  const head = cut(root, Math.max(rootMin, room - width(current)))
 
   return head + between + cut(current, room - width(head)) + suffix
 }

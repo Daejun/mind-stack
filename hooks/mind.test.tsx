@@ -150,7 +150,10 @@ describe('stack', () => {
         }
       }
     }
-    expect(trail(at(long(0), long(1)), 30)).toBe('가나다라마바… → 가나다라마바…')
+    // The current topic keeps the room; the root gives way to a few cells.
+    expect(trail(at(long(0), long(1)), 30)).toBe('가나… → 가나다라마바사아자차…')
+    expect(trail(at('fio bench', 'lease 대기'), 19)).toBe('fio b… → lease 대기')
+    expect(trail(at('fio bench', 'x', 'lease 대기'), 6)).toBe('lease…')
   })
 
   test('the trail line shows the trail and a pending mark', async () => {
@@ -194,7 +197,7 @@ describe('hooks', () => {
 
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
     const ui = await $.ui.mount(HINT)
-    const line = async () => (await ui.find({ type: 'Text', text: /fio/ }))?.text ?? ''
+    const line = async () => (await ui.find({ key: 'trail' }))?.text ?? ''
 
     for (const text of ['fio bench 돌려줘', 'lease가 안 잡히는데 누가 쥐고 있어?', '됐다. 이제 bench 결과 보자']) {
       await $.prompt.submit(typed(text))

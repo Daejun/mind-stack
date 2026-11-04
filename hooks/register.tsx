@@ -10,6 +10,7 @@ import {
   listing,
   parseVerdict,
   request,
+  SEP,
   trailLine,
   width,
 } from './stack'
@@ -25,6 +26,7 @@ const MIN_PROMPT = 10
 const STORE_INDEX = 'sessions'
 const STORE_CAP = 30
 const LOG_CAP = 200
+const ROW_INSET = 6
 const RESUME_POLL_MS = 200
 const RESUME_TRIES = 25
 // Where a prompt the developer wrote comes from.
@@ -330,17 +332,28 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const m = await read($, mind)
-    const line = trailLine(m, (e.viewport?.columns ?? 80) - 4 - width(icon))
+    // The row starts 4 cells in and the hint's box keeps 2 more at the right.
+    const line = trailLine(m, (e.viewport?.columns ?? 80) - ROW_INSET - width(icon))
+    // Should the line still come out wider than the row, the part before the
+    // current topic is cut, never the current topic, and the row never wraps.
+    const at = line.lastIndexOf(SEP)
+    const head = at < 0 ? line : line.slice(0, at + SEP.length)
+    const current = line.slice(head.length)
     const { Box, Text } = $.ui.resolve(e)
 
     return (
       <Box flexDirection="column">
         {await next(e)}
-        <Box paddingLeft={2}>
-          <Text dimColor>
+        <Box key="trail" paddingLeft={2} flexDirection="row">
+          <Text dimColor wrap="truncate-end">
             {icon}
-            {line}
+            {head}
           </Text>
+          <Box flexShrink={0}>
+            <Text dimColor wrap="truncate-end">
+              {current}
+            </Text>
+          </Box>
         </Box>
       </Box>
     )
