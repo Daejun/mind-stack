@@ -157,7 +157,7 @@ describe('stack', () => {
   })
 
   test('the trail line shows the trail and a pending mark', async () => {
-    expect(trailLine(EMPTY, 60)).toBe('(주제 없음)')
+    expect(trailLine(EMPTY, 60)).toBe('(no topic)')
     expect(trailLine({ ...EMPTY, isJudging: true }, 60)).toBe('…')
     expect(trailLine({ ...EMPTY, stack: at('fio bench'), isJudging: true }, 60)).toBe(
       'fio bench …',
@@ -284,7 +284,7 @@ describe('hooks', () => {
     await clock.advance(200)
     id = 's5'
     await clock.advance(1000)
-    expect(await row()).toBe('📚 (주제 없음)')
+    expect(await row()).toBe('📚 (no topic)')
 
     await $.session.end({ reason: 'resume', sessionId: 's5', resume: { id: 's5' } })
     id = 's4'
@@ -318,10 +318,10 @@ describe('hooks', () => {
     const ui = await $.ui.mount(HINT)
     expect((await ui.find({ type: 'Text' }))?.text).toBe('? for shortcuts')
     expect(await ui.find({ type: 'Text', text: /fio/ })).toBe(undefined)
-    expect((await ui.find({ type: 'Text', text: /주제 없음/ }))?.text).toBe('📚 (주제 없음)')
+    expect((await ui.find({ type: 'Text', text: /no topic/ }))?.text).toBe('📚 (no topic)')
     await ui.unmount()
     const shown = await $.command.run(topic('log'))
-    expect(shown.text?.includes('실패 1')).toBe(true)
+    expect(shown.text?.includes('failed 1')).toBe(true)
   })
 
   test('a verdict that comes after /resume leaves both sessions as saved', async ($, on) => {
@@ -345,7 +345,7 @@ describe('hooks', () => {
     await clock.advance(5)
     id = 's4'
     await clock.advance(1000)
-    expect((await $.command.run(topic(''))).text?.includes('stack: (비어 있음)')).toBe(true)
+    expect((await $.command.run(topic(''))).text?.includes('stack: (empty)')).toBe(true)
 
     await $.session.end({ reason: 'resume', sessionId: 's4', resume: { id: 's4' } })
     id = 's5'
@@ -376,8 +376,8 @@ describe('hooks', () => {
     // The second prompt, queued behind the first, is never sent.
     expect(gates.length).toBe(0)
     const shown = (await $.command.run(topic(''))).text ?? ''
-    expect(shown.includes('stack: (비어 있음)')).toBe(true)
-    expect(shown.includes('haiku 호출 0회')).toBe(true)
+    expect(shown.includes('stack: (empty)')).toBe(true)
+    expect(shown.includes('haiku calls 0')).toBe(true)
   })
 
   test('/topic push while a verdict is coming wins over it', async ($, on) => {

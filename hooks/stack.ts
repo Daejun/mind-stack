@@ -266,7 +266,7 @@ export function trail(stack: Topic[], budget: number): string {
 export function trailLine(mind: Mind, room: number): string {
   const suffix = (mind.isAuto ? '' : ' (manual)') + (mind.isJudging ? ' …' : '')
   if (mind.stack.length === 0) {
-    return mind.isJudging ? '…' : '(주제 없음)' + suffix
+    return mind.isJudging ? '…' : '(no topic)' + suffix
   }
   const budget = Math.min(room, 120) - width(suffix)
 
@@ -276,21 +276,21 @@ export function trailLine(mind: Mind, room: number): string {
 export function listing(mind: Mind): string {
   const lines: string[] = []
   if (mind.stack.length === 0) {
-    lines.push('stack: (비어 있음)')
+    lines.push('stack: (empty)')
   } else {
     lines.push('stack:')
     mind.stack.forEach((t, i) => {
-      const mark = i === mind.stack.length - 1 ? '  <- 지금' : ''
+      const mark = i === mind.stack.length - 1 ? '  <- now' : ''
       lines.push(`  ${i + 1}. ${t.label} (prompt #${t.turn})${mark}`)
     })
   }
   const done = mind.history.slice(-HISTORY_CAP)
   if (done.length > 0) {
-    lines.push(`끝난 곁가지 (최근 ${done.length}개): ${done.map(t => t.label).join(', ')}`)
+    lines.push(`closed side topics (last ${done.length}): ${done.map(t => t.label).join(', ')}`)
   }
   const u = mind.usage
   lines.push(
-    `자동 판정: ${mind.isAuto ? '켜짐' : '꺼짐'}, haiku 호출 ${u.calls}회 (실패 ${u.failures}), ` +
+    `automatic judging: ${mind.isAuto ? 'on' : 'off'}, haiku calls ${u.calls} (failed ${u.failures}), ` +
       `input ${u.inputTokens} (cache read ${u.cacheReadTokens}) / output ${u.outputTokens} token`,
   )
 

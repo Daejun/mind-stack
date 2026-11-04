@@ -199,11 +199,11 @@ async function command($: $, args: string): Promise<string> {
   switch (sub) {
     case '':
     case 'log':
-      return `${listing(m)}\n호출별 기록: ${(await logPath($)) ?? '(HOME 없음)'}`
+      return `${listing(m)}\ncall log: ${(await logPath($)) ?? '(no HOME)'}`
     case 'push': {
       const label = cleanLabel(word)
       if (label === undefined) {
-        return '사용법: /topic push <label>'
+        return 'usage: /topic push <label>'
       }
       const turn = await $.session.turns()
       await change($, x => held(apply(x, { action: 'push', label }, turn)))
@@ -211,12 +211,12 @@ async function command($: $, args: string): Promise<string> {
     }
     case 'pop': {
       if (m.stack.length <= 1) {
-        return '더 돌아갈 곳이 없습니다.\n' + listing(m)
+        return 'Nothing to go back to.\n' + listing(m)
       }
       // `/topic pop` goes up one level; `/topic pop 2` returns to item 2.
       const to = word === '' ? m.stack.length - 2 : Number(word) - 1
       if (!Number.isInteger(to) || to < 0 || to >= m.stack.length) {
-        return `사용법: /topic pop [1-${m.stack.length}]`
+        return `usage: /topic pop [1-${m.stack.length}]`
       }
       await change($, x => held(apply(x, { action: 'pop', to }, 0)))
       return listing(await read($, mind))
@@ -224,7 +224,7 @@ async function command($: $, args: string): Promise<string> {
     case 'rename': {
       const label = cleanLabel(word)
       if (label === undefined || m.stack.length === 0) {
-        return '사용법: /topic rename <label> (stack이 비어 있지 않을 때)'
+        return 'usage: /topic rename <label> (when the stack is not empty)'
       }
       await change($, x =>
         held({ ...x, stack: [...x.stack.slice(0, -1), { ...x.stack.at(-1)!, label }] }),
@@ -233,15 +233,15 @@ async function command($: $, args: string): Promise<string> {
     }
     case 'reset':
       await change($, x => held({ ...x, stack: [], history: [] }))
-      return 'stack을 비웠습니다.'
+      return 'Stack emptied.'
     case 'off':
       await change($, x => ({ ...x, isAuto: false }))
-      return '자동 판정을 껐습니다. /topic push, pop, rename으로만 바뀝니다.'
+      return 'Automatic judging is off; only /topic push, pop and rename change the stack.'
     case 'on':
       await change($, x => ({ ...x, isAuto: true }))
-      return '자동 판정을 켰습니다.'
+      return 'Automatic judging is on.'
     default:
-      return '사용법: /topic [log | push <label> | pop [n] | rename <label> | reset | off | on]'
+      return 'usage: /topic [log | push <label> | pop [n] | rename <label> | reset | off | on]'
   }
 }
 
