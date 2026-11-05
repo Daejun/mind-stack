@@ -18,6 +18,10 @@ export type Mind = {
   // A switch kept the root: the next switch, with no return to the root
   // before it, replaces the root.
   isRootDoubted: boolean
+  // The number the last judged prompt was given: a prompt absorbed into
+  // the running turn adds no user turn, so session.turns() alone would give
+  // the next one the same number.
+  lastTurn: number
   usage: Usage
 }
 

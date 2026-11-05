@@ -21,7 +21,7 @@ import {
 // Change the tag when Mind's fields change: it declines what an earlier
 // version stored, which outlives a reload.
 const mind = atom({ plugin: 'mind-stack', key: 'mind' } as const, EMPTY, {
-  shape: 'mind-3',
+  shape: 'mind-4',
 })
 
 const MODEL = 'haiku'
@@ -234,7 +234,8 @@ async function command($: $, args: string): Promise<string> {
       if (label === undefined) {
         return 'usage: /topic push <label>'
       }
-      const turn = await $.session.turns()
+      // The prompt the command came after, absorbed ones counted.
+      const turn = Math.max(await $.session.turns(), m.lastTurn)
       await change($, x => held(apply(x, { action: 'push', label }, turn)))
       return listing(await read($, mind))
     }
@@ -344,7 +345,10 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     const reply = lastReply(await $.session.messages())
-    const turn = (await $.session.turns()) + 1
+    // A prompt sent while a turn runs is absorbed into it and adds no user
+    // turn: count on from the last number given.
+    const turn = Math.max((await $.session.turns()) + 1, m.lastTurn + 1)
+    await update($, mind, x => ({ ...x, lastTurn: Math.max(x.lastTurn, turn) }))
     const sent = epoch
 
     // Off the prompt's path: the turn starts without waiting for haiku.

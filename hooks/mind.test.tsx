@@ -279,6 +279,41 @@ describe('hooks', () => {
     expect(JSON.parse(log[0] ?? '{}').retried).toBe('{"action":"push","label":"readable 확인"}')
   })
 
+  test('prompts absorbed into a running turn still get numbers of their own', async ($, on) => {
+    const clock = mock.clock(on)
+    mock.store(on)
+    mockFiles(on)
+    const answers = [
+      '{"action":"push","label":"남은 할일 확인"}',
+      '{"action":"push","label":"git push 실행"}',
+      '{"action":"push","label":"readable 확인"}',
+    ]
+
+    on('command.register', () => ({ value: { command: 'topic' } }))
+    on('session.start', (_, e) => ({ cwd: e.cwd }))
+    on('session.id', () => ({ value: 's5' }))
+    // Absorbed prompts add no user turn: the count stays where it was.
+    on('session.turns', () => ({ value: 0 }))
+    on('session.messages', () => ({ value: [] }))
+    on('model.complete', () => ({
+      value: { isAnswered: true, text: answers.shift() ?? '', usage },
+    }))
+    on('prompt.submit', (_, e) => ({ text: e.text }))
+
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    for (const text of ['남은 할일 확인좀', 'git push해줘 지금 바로', 'kpagecgroup /readable 돌림?']) {
+      await $.prompt.submit(typed(text))
+      await clock.advance(5)
+    }
+    await $.command.run(topic('push lease 대기'))
+
+    const shown = (await $.command.run(topic(''))).text ?? ''
+    expect(shown.includes('1. 남은 할일 확인 (prompt #1)')).toBe(true)
+    expect(shown.includes('2. git push 실행 (prompt #2)')).toBe(true)
+    expect(shown.includes('3. readable 확인 (prompt #3)')).toBe(true)
+    expect(shown.includes('4. lease 대기 (prompt #3)')).toBe(true)
+  })
+
   test('a short first prompt names the root, later short ones are not judged', async ($, on) => {
     const clock = mock.clock(on)
     mock.store(on)

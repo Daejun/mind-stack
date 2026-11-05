@@ -14,6 +14,7 @@ export const EMPTY: Mind = {
   isHeld: false,
   isJudging: false,
   isRootDoubted: false,
+  lastTurn: 0,
   usage: { calls: 0, failures: 0, inputTokens: 0, cacheReadTokens: 0, outputTokens: 0 },
 }
 
