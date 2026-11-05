@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { EMPTY, apply, trailLine, parseVerdict, trail, width } from './stack'
+import { EMPTY, apply, longLabel, sameMove, trailLine, parseVerdict, trail, width } from './stack'
 
 const at = (...labels: string[]) => labels.map((label, turn) => ({ label, turn }))
 const typed = (text: string) => ({ text, wait: false, origin: { kind: 'composer' as const } })
@@ -85,6 +85,17 @@ describe('stack', () => {
     })
     expect(parseVerdict('{"action":"sibling","to":1}', 3)).toBe(undefined)
     expect(parseVerdict('no json', 1)).toBe(undefined)
+  })
+
+  test('a label wider than the row is found before it is cut', () => {
+    const long = '{"action":"push","label":"kpagecgroup /readable 확인"}'
+    expect(longLabel(long)).toBe('kpagecgroup /readable 확인')
+    expect(parseVerdict(long, 2)).toEqual({ action: 'push', label: 'kpagecgroup /readable …' })
+    expect(longLabel('{"action":"push","label":"readable 확인"}')).toBe(undefined)
+    expect(longLabel('{"action":"same"}')).toBe(undefined)
+    expect(sameMove({ action: 'push', label: 'a' }, { action: 'push', label: 'b' })).toBe(true)
+    expect(sameMove({ action: 'sibling', to: 0, label: 'a' }, { action: 'sibling', to: 1, label: 'a' })).toBe(false)
+    expect(sameMove({ action: 'push', label: 'a' }, { action: 'switch', label: 'a' })).toBe(false)
   })
 
   test('push, pop and switch move the stack and the history', async () => {
@@ -224,6 +235,48 @@ describe('hooks', () => {
     expect(lines).toEqual(['📚 fio bench', '📚 fio bench → lease 대기', '📚 fio bench'])
     expect((await ui.find({ type: 'Text', text: /shortcuts/ }))?.text).toBe('? for shortcuts')
     await ui.unmount()
+  })
+
+  test('a label too long for the row is asked again once', async ($, on) => {
+    const clock = mock.clock(on)
+    mock.store(on)
+    const files = mockFiles(on)
+    const answers = [
+      '{"action":"push","label":"kpagecgroup /readable 확인"}',
+      '{"action":"push","label":"readable 확인"}',
+      '{"action":"push","label":"erofs mm 패치 설명 markdown 문서"}',
+      '{"action":"push","label":"erofs mm 패치 설명 markdown 문서 작성"}',
+    ]
+    const asked: string[] = []
+
+    on('command.register', () => ({ value: { command: 'topic' } }))
+    on('session.start', (_, e) => ({ cwd: e.cwd }))
+    on('session.id', () => ({ value: 's4' }))
+    on('session.turns', () => ({ value: 0 }))
+    on('session.messages', () => ({ value: [] }))
+    on('model.complete', (_, e) => {
+      asked.push(e.prompt)
+      return { value: { isAnswered: true, text: answers.shift() ?? '', usage } }
+    })
+    on('prompt.submit', (_, e) => ({ text: e.text }))
+
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('kpagecgroup /readable 돌림?'))
+    await clock.advance(5)
+    await $.prompt.submit(typed('erofs랑 mm patch도 쉽게 설명하는 md 써줘'))
+    await clock.advance(5)
+
+    expect(asked.length).toBe(4)
+    expect(asked[1]?.startsWith(asked[0] ?? '?')).toBe(true)
+    expect(asked[1]?.includes('kpagecgroup /readable 확인')).toBe(true)
+    const shown = (await $.command.run(topic(''))).text ?? ''
+    expect(shown.includes('1. readable 확인')).toBe(true)
+    // The second answer is still too long: the first one, cut, stands.
+    expect(shown.includes('2. erofs mm 패치 설명 mark…')).toBe(true)
+    expect(shown.includes('haiku calls 4')).toBe(true)
+    const log = (files.get('/home/t/.claude/mind-stack/calls.jsonl') ?? '').trim().split('\n')
+    expect(log.length).toBe(2)
+    expect(JSON.parse(log[0] ?? '{}').retried).toBe('{"action":"push","label":"readable 확인"}')
   })
 
   test('a short first prompt names the root, later short ones are not judged', async ($, on) => {

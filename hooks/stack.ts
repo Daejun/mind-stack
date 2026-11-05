@@ -72,27 +72,64 @@ export function request(stack: Topic[], reply: string, prompt: string): string {
   ].join('\n\n')
 }
 
-export function cleanLabel(raw: unknown): string | undefined {
+function tidy(raw: unknown): string | undefined {
   if (typeof raw !== 'string') {
     return undefined
   }
   const label = raw.replace(/["'`]/g, '').replace(/\s+/g, ' ').trim()
-  if (label === '') {
-    return undefined
-  }
 
-  return cut(label, LABEL_WIDTH)
+  return label === '' ? undefined : label
 }
 
-export function parseVerdict(text: string, depth: number): Verdict | undefined {
+export function cleanLabel(raw: unknown): string | undefined {
+  const label = tidy(raw)
+
+  return label === undefined ? undefined : cut(label, LABEL_WIDTH)
+}
+
+type RawVerdict = { action?: unknown; to?: unknown; label?: unknown }
+
+function verdictJson(text: string): RawVerdict | undefined {
   const found = text.match(/\{[\s\S]*\}/)
   if (!found) {
     return undefined
   }
-  let raw: { action?: unknown; to?: unknown; label?: unknown }
   try {
-    raw = JSON.parse(found[0])
+    return JSON.parse(found[0])
   } catch {
+    return undefined
+  }
+}
+
+// The label of an answer when it is wider than a label may be, before
+// cleanLabel cuts its end off.
+export function longLabel(text: string): string | undefined {
+  const label = tidy(verdictJson(text)?.label)
+
+  return label !== undefined && width(label) > LABEL_WIDTH ? label : undefined
+}
+
+// The request asked again when the answer's label is too wide: the same
+// request, the first answer, and the width it has to fit.
+export function shorter(asked: string, answer: string, label: string): string {
+  return [
+    asked,
+    `<your_answer>\n${answer.trim()}\n</your_answer>`,
+    `The label "${label}" is too long for the row. ` +
+      'Answer again with the same action and "to", and a shorter label: ' +
+      '2 to 4 words, at most about 16 characters. ' +
+      'Keep the words that name the task and drop the rest.',
+  ].join('\n\n')
+}
+
+// Two verdicts that move the stack the same way, whatever their labels.
+export function sameMove(a: Verdict, b: Verdict): boolean {
+  return a.action === b.action && ('to' in a ? a.to : -1) === ('to' in b ? b.to : -1)
+}
+
+export function parseVerdict(text: string, depth: number): Verdict | undefined {
+  const raw = verdictJson(text)
+  if (raw === undefined) {
     return undefined
   }
   const label = cleanLabel(raw.label)

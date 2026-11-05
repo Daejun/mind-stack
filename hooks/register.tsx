@@ -8,9 +8,12 @@ import {
   apply,
   cleanLabel,
   listing,
+  longLabel,
   parseVerdict,
   request,
+  sameMove,
   SEP,
+  shorter,
   trailLine,
   width,
 } from './stack'
@@ -120,23 +123,47 @@ async function judge($: $, prompt: string, reply: string, turn: number, hasLeft:
 
   const startedAt = await $.clock.now()
   const asked = request(before.stack, reply, prompt)
-  const r = await $.model.complete({
-    model: MODEL,
-    // The rules are the same in every call: read from the prompt cache within
-    // five minutes of the last one.
-    system: [{ text: RULES, cache: true }],
-    prompt: asked,
-    maxTokens: 512,
-    effort: 'low',
-    timeoutMs: 20000,
-  })
-  const verdict = r.isAnswered
+  const ask = (text: string) =>
+    $.model.complete({
+      model: MODEL,
+      // The rules are the same in every call: read from the prompt cache
+      // within five minutes of the last one.
+      system: [{ text: RULES, cache: true }],
+      prompt: text,
+      maxTokens: 512,
+      effort: 'low',
+      timeoutMs: 20000,
+    })
+  const r = await ask(asked)
+  let verdict = r.isAnswered
     ? parseVerdict(r.text, before.stack.length)
     : undefined
-  const u = r.usage
-  const cacheRead = u.cache_read_input_tokens ?? 0
-  const cacheWrite = u.cache_creation_input_tokens ?? 0
-  const input = u.input_tokens + cacheWrite + cacheRead
+  const usages = [r.usage]
+
+  // A label wider than the row keeps loses its end to cut(), and the end is
+  // often the word that names the task ("... 확인"): ask once for a shorter
+  // one, and keep the first verdict, cut, when the second does not fit.
+  const long = r.isAnswered && verdict !== undefined ? longLabel(r.text) : undefined
+  let retried: string | null = null
+  if (long !== undefined && !hasLeft()) {
+    const again = await ask(shorter(asked, r.text, long))
+    usages.push(again.usage)
+    if (again.isAnswered) {
+      retried = again.text
+      const second = parseVerdict(again.text, before.stack.length)
+      const isFit =
+        second !== undefined && sameMove(verdict!, second) && longLabel(again.text) === undefined
+      if (isFit) {
+        verdict = second
+      }
+    }
+  }
+  const total = (key: keyof (typeof usages)[number]) =>
+    usages.reduce((sum, one) => sum + (one[key] ?? 0), 0)
+  const cacheRead = total('cache_read_input_tokens')
+  const cacheWrite = total('cache_creation_input_tokens')
+  const input = total('input_tokens') + cacheWrite + cacheRead
+  const output = total('output_tokens')
   const isLeft = hasLeft()
 
   if (isLeft) {
@@ -153,11 +180,11 @@ async function judge($: $, prompt: string, reply: string, turn: number, hasLeft:
         ...judged,
         isJudging: false,
         usage: {
-          calls: m.usage.calls + 1,
+          calls: m.usage.calls + usages.length,
           failures: m.usage.failures + (verdict ? 0 : 1),
           inputTokens: m.usage.inputTokens + input,
           cacheReadTokens: m.usage.cacheReadTokens + cacheRead,
-          outputTokens: m.usage.outputTokens + u.output_tokens,
+          outputTokens: m.usage.outputTokens + output,
         },
       }
     })
@@ -180,10 +207,12 @@ async function judge($: $, prompt: string, reply: string, turn: number, hasLeft:
     request: asked,
     verdict: verdict ?? null,
     text: r.isAnswered ? r.text : null,
+    // The answer asked for a shorter label, when the first was too long.
+    ...(long !== undefined ? { retried } : {}),
     inputTokens: input,
     cacheReadTokens: cacheRead,
     cacheWriteTokens: cacheWrite,
-    outputTokens: u.output_tokens,
+    outputTokens: output,
     ...(r.isAnswered ? {} : { reason: r.reason }),
   }).catch(() => undefined)
 }

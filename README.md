@@ -72,9 +72,9 @@ claude plugin update mind-stack@mind-stack
 
 ## 비용
 
-prompt 하나에 `haiku` 호출 하나(effort `low`)이고 대화 history는 보내지 않습니다. 보내는 것은 stack label, 직전 응답 끝 400자, prompt 앞 600자입니다. 실제 대화 88개 prompt로 528번 부른 측정에서 호출당 input 약 1,250, output 약 310 token이었고, output 대부분은 model의 thinking입니다. input 중 판정 규칙 부분(약 860 token)은 prompt cache에 두어, 5분 안에 다시 부르면 0.1배 값으로 읽습니다. 결과는 입력창 아래에만 그리고 대화 context에는 넣지 않습니다. 호출이 실패하거나 20초를 넘기면 stack은 그대로 둡니다.
+prompt 하나에 `haiku` 호출 하나(effort `low`)이고 대화 history는 보내지 않습니다. 보내는 것은 stack label, 직전 응답 끝 400자, prompt 앞 600자입니다. 실제 대화 88개 prompt로 528번 부른 측정에서 호출당 input 약 1,250, output 약 310 token이었고, output 대부분은 model의 thinking입니다. input 중 판정 규칙 부분(약 860 token)은 prompt cache에 두어, 5분 안에 다시 부르면 0.1배 값으로 읽습니다. 결과는 입력창 아래에만 그리고 대화 context에는 넣지 않습니다. 호출이 실패하거나 20초를 넘기면 stack은 그대로 둡니다. 답의 label이 24칸을 넘으면 같은 요청에 첫 답을 붙여 짧은 label을 한 번 더 묻습니다. 두 번째 답도 길거나 다른 판정이면 첫 답의 label을 24칸에서 자릅니다(끝에 `…`).
 
-호출마다 `~/.claude/mind-stack/calls.jsonl`에 한 줄씩 남깁니다(최근 200개). 시각, 걸린 시간, 판정 규칙의 hash, 판정 전후 stack, prompt 앞 60자, `haiku`에 보낸 요청 전체와 답, 판정, token(cache에서 읽은 것과 새로 쓴 것 따로)이 들어갑니다. 합계는 `/topic log`로 봅니다.
+호출마다 `~/.claude/mind-stack/calls.jsonl`에 한 줄씩 남깁니다(최근 200개). 시각, 걸린 시간, 판정 규칙의 hash, 판정 전후 stack, prompt 앞 60자, `haiku`에 보낸 요청 전체와 답, 판정, token(cache에서 읽은 것과 새로 쓴 것 따로)이 들어갑니다. 짧은 label을 다시 물었으면 그 답이 `retried`에 들어갑니다. 합계는 `/topic log`로 봅니다.
 
 ## 참고
 
@@ -153,9 +153,9 @@ The prompt right after a manual edit is not classified, so the edit stands. With
 
 ### Cost
 
-One `haiku` call per prompt, effort `low`, with no conversation history: the stack labels, the last 400 characters of the previous reply and the first 600 characters of the prompt. Measured over 528 calls on 88 prompts from real sessions: about 1,250 input and 310 output tokens per call, most of the output being the model's thinking. The rules part of the input (about 860 tokens) is kept in the prompt cache, so a call within five minutes of the last reads it at a tenth of the price. The result is drawn under the prompt only and never goes into the conversation's context. A failed or timed-out call (20 s) leaves the stack as it was.
+One `haiku` call per prompt, effort `low`, with no conversation history: the stack labels, the last 400 characters of the previous reply and the first 600 characters of the prompt. Measured over 528 calls on 88 prompts from real sessions: about 1,250 input and 310 output tokens per call, most of the output being the model's thinking. The rules part of the input (about 860 tokens) is kept in the prompt cache, so a call within five minutes of the last reads it at a tenth of the price. The result is drawn under the prompt only and never goes into the conversation's context. A failed or timed-out call (20 s) leaves the stack as it was. When the answer's label is wider than 24 cells, the same request goes out once more with the first answer attached, asking for a shorter label. If the second answer is still too wide or moves the stack another way, the first label is cut at 24 cells (ending in `…`).
 
-Each call is also written as one JSON line to `~/.claude/mind-stack/calls.jsonl` (the newest 200 kept): time, latency, a hash of the rules, the stack before and after, the first 60 characters of the prompt, the whole request sent to `haiku`, its answer, the verdict and the tokens (those read from and written to the cache apart). `/topic log` shows the totals.
+Each call is also written as one JSON line to `~/.claude/mind-stack/calls.jsonl` (the newest 200 kept): time, latency, a hash of the rules, the stack before and after, the first 60 characters of the prompt, the whole request sent to `haiku`, its answer, the verdict and the tokens (those read from and written to the cache apart). When a shorter label was asked for, that answer is in `retried`. `/topic log` shows the totals.
 
 ### Notes
 
