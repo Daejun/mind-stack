@@ -41,7 +41,8 @@ Step 2. Decide whether the message continues T's own work or opens a new, narrow
 
 A message about something the topic in progress does not cover does not belong to it, even when it comes right after it.
 When the stack is empty, answer "push" with a label for the new message.
-"same" is only a follow-up, a correction, an acknowledgement or an answer to the assistant's question, about the request the last reply was working on.
+"same" is only a follow-up, a correction or an acknowledgement about the request the last reply was working on.
+A message that accepts, answers or picks from what the last reply proposed or asked ("ok", "do that", "option 2") means that proposal, or the option it picks: judge the proposal as if the developer had written it, and take the label from the proposal's words. Accepting the next step of the request the last reply was working on is "same".
 A message that asks for a different thing (another command, question, file or component) opens a topic, even in the same area.
 
 For example, with the stack "0: fio bench", "1: lease wait":
@@ -60,7 +61,20 @@ Keep technical terms, commands and identifiers in English as the developer write
 Answer with one JSON object and nothing else:
 {"action": "same" | "push" | "pop" | "sibling" | "switch", "to": <index, for pop and sibling>, "label": "<label, for push, sibling and switch>"}`
 
+const REPLY_END = 400
+// A reply that ends asking is sent longer, so the options it lists before
+// the question come along: "1번 진행해" names one of them.
+const ASKING_REPLY_END = 800
+const ASK_SCAN = 300
+const ASKS = /(\?|까요|주세요|주십시오|할지|정해|원하시면|알려)[^\p{L}\p{N}_]*$/u
+
+// The last reply ends with a question or a proposal for the developer.
+export function isAsking(reply: string): boolean {
+  return ASKS.test(reply.slice(-ASK_SCAN).replace(/[\s*`_)\]]+$/u, ''))
+}
+
 export function request(stack: Topic[], reply: string, prompt: string): string {
+  const end = isAsking(reply) ? ASKING_REPLY_END : REPLY_END
   const listed =
     stack.length === 0
       ? '(empty)'
@@ -68,7 +82,7 @@ export function request(stack: Topic[], reply: string, prompt: string): string {
 
   return [
     `<stack>\n${listed}\n</stack>`,
-    `<assistant_last_reply_end>\n${reply.slice(-400)}\n</assistant_last_reply_end>`,
+    `<assistant_last_reply_end>\n${reply.slice(-end)}\n</assistant_last_reply_end>`,
     `<new_message>\n${prompt.slice(0, 600)}\n</new_message>`,
   ].join('\n\n')
 }

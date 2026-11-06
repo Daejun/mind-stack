@@ -7,6 +7,7 @@ import {
   RULES,
   apply,
   cleanLabel,
+  isAsking,
   listing,
   longLabel,
   parseVerdict,
@@ -339,12 +340,14 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     const text = e.text.trim()
+    const reply = lastReply(await $.session.messages())
     // A short prompt is mostly a reply ("ㅇㅇ", "ㄱㄱ"), but the first one
-    // ("할일 확인좀") is all there is to name the root by.
-    if (text === '' || (text.length < MIN_PROMPT && m.stack.length > 0)) {
+    // ("할일 확인좀") is all there is to name the root by, and one that answers
+    // the last reply's question ("1번 진행해") may start what it proposed.
+    const isShort = text.length < MIN_PROMPT && m.stack.length > 0 && !isAsking(reply)
+    if (text === '' || isShort) {
       return next(e)
     }
-    const reply = lastReply(await $.session.messages())
     // A prompt sent while a turn runs is absorbed into it and adds no user
     // turn: count on from the last number given.
     const turn = Math.max((await $.session.turns()) + 1, m.lastTurn + 1)

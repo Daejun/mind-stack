@@ -26,7 +26,7 @@ prompt를 보낼 때마다 `haiku`를 한 번 불러 판정합니다. 판정은 
 | `sibling` | 지금 곁가지는 끝났고, 앞 주제에서 새 곁가지 | 그 위는 닫고 하나 쌓음 |
 | `switch` | 관계없는 새 일 | root는 두고 그 아래에 새 주제. root로 돌아오지 않은 채 한 번 더 switch하면 처음 switch한 주제가 root가 됨 |
 
-slash command는 판정하지 않습니다. 10자 미만 prompt는 session의 첫 prompt일 때만 판정하므로, "할일 확인좀"처럼 짧게 시작해도 root가 생깁니다. 줄이 좁으면 가운데부터 줄이고 root와 지금 주제는 남깁니다: `fio bench → … → hook 수정 (6)`.
+slash command는 판정하지 않습니다. 10자 미만 prompt는 두 경우에만 판정합니다. session의 첫 prompt이면 판정하므로 "할일 확인좀"처럼 짧게 시작해도 root가 생깁니다. 직전 응답이 질문이나 제안으로 끝났으면 판정하므로 "1번 진행해", "ㅇㅋ"가 그 제안한 일을 곁가지로 열 수 있습니다. 제안에 답하는 prompt는 그 제안을 쓴 것으로 보고 판정하고, label도 제안의 말로 짓습니다. 줄이 좁으면 가운데부터 줄이고 root와 지금 주제는 남깁니다: `fio bench → … → hook 수정 (6)`.
 
 ## 설치
 
@@ -72,7 +72,7 @@ claude plugin update mind-stack@mind-stack
 
 ## 비용
 
-prompt 하나에 `haiku` 호출 하나(effort `low`)이고 대화 history는 보내지 않습니다. 보내는 것은 stack label, 직전 응답 끝 400자, prompt 앞 600자입니다. 실제 대화 88개 prompt로 528번 부른 측정에서 호출당 input 약 1,250, output 약 310 token이었고, output 대부분은 model의 thinking입니다. input 중 판정 규칙 부분(약 860 token)은 prompt cache에 두어, 5분 안에 다시 부르면 0.1배 값으로 읽습니다. 결과는 입력창 아래에만 그리고 대화 context에는 넣지 않습니다. 호출이 실패하거나 20초를 넘기면 stack은 그대로 둡니다. 답의 label이 24칸을 넘으면 같은 요청에 첫 답을 붙여 짧은 label을 한 번 더 묻습니다. 두 번째 답도 길거나 다른 판정이면 첫 답의 label을 24칸에서 자릅니다(끝에 `…`).
+prompt 하나에 `haiku` 호출 하나(effort `low`)이고 대화 history는 보내지 않습니다. 보내는 것은 stack label, 직전 응답 끝 400자(질문으로 끝난 응답이면 800자), prompt 앞 600자입니다. 실제 대화 88개 prompt로 528번 부른 측정에서 호출당 input 약 1,250, output 약 310 token이었고, output 대부분은 model의 thinking입니다. input 중 판정 규칙 부분(약 860 token)은 prompt cache에 두어, 5분 안에 다시 부르면 0.1배 값으로 읽습니다. 결과는 입력창 아래에만 그리고 대화 context에는 넣지 않습니다. 호출이 실패하거나 20초를 넘기면 stack은 그대로 둡니다. 답의 label이 24칸을 넘으면 같은 요청에 첫 답을 붙여 짧은 label을 한 번 더 묻습니다. 두 번째 답도 길거나 다른 판정이면 첫 답의 label을 24칸에서 자릅니다(끝에 `…`).
 
 호출마다 `~/.claude/mind-stack/calls.jsonl`에 한 줄씩 남깁니다(최근 200개). 시각, 걸린 시간, 판정 규칙의 hash, 판정 전후 stack, prompt 앞 60자, `haiku`에 보낸 요청 전체와 답, 판정, token(cache에서 읽은 것과 새로 쓴 것 따로)이 들어갑니다. 짧은 label을 다시 물었으면 그 답이 `retried`에 들어갑니다. 합계는 `/topic log`로 봅니다.
 
@@ -107,7 +107,7 @@ Each prompt you type is classified by one small `haiku` call, off the prompt's p
 | `sibling` | the current side topic is done; a new sub-problem of an earlier topic | topics above that one are closed, label pushed |
 | `switch` | unrelated new work | the root stays and the new topic goes under it; a second switch with no return to the root in between makes the first switch's topic the root |
 
-Slash commands are not classified, nor are prompts shorter than 10 characters once the stack holds a topic (the first prompt of a session is always classified, so a short one such as "할일 확인좀" still names the root). When the line is too narrow, the middle gives way and the root and the current topic stay: `fio bench → … → hook fix (6)`.
+Slash commands are not classified, nor are prompts shorter than 10 characters once the stack holds a topic, with two exceptions. The first prompt of a session is always classified, so a short one such as "할일 확인좀" still names the root. A short prompt after a reply that ends with a question or a proposal is classified too, so "option 1" or "ok" can open the side topic the reply proposed. A prompt that answers a proposal is judged as that proposal, and its label comes from the proposal's words. When the line is too narrow, the middle gives way and the root and the current topic stay: `fio bench → … → hook fix (6)`.
 
 ### Install
 
@@ -153,7 +153,7 @@ The prompt right after a manual edit is not classified, so the edit stands. With
 
 ### Cost
 
-One `haiku` call per prompt, effort `low`, with no conversation history: the stack labels, the last 400 characters of the previous reply and the first 600 characters of the prompt. Measured over 528 calls on 88 prompts from real sessions: about 1,250 input and 310 output tokens per call, most of the output being the model's thinking. The rules part of the input (about 860 tokens) is kept in the prompt cache, so a call within five minutes of the last reads it at a tenth of the price. The result is drawn under the prompt only and never goes into the conversation's context. A failed or timed-out call (20 s) leaves the stack as it was. When the answer's label is wider than 24 cells, the same request goes out once more with the first answer attached, asking for a shorter label. If the second answer is still too wide or moves the stack another way, the first label is cut at 24 cells (ending in `…`).
+One `haiku` call per prompt, effort `low`, with no conversation history: the stack labels, the last 400 characters of the previous reply (800 when it ends with a question) and the first 600 characters of the prompt. Measured over 528 calls on 88 prompts from real sessions: about 1,250 input and 310 output tokens per call, most of the output being the model's thinking. The rules part of the input (about 860 tokens) is kept in the prompt cache, so a call within five minutes of the last reads it at a tenth of the price. The result is drawn under the prompt only and never goes into the conversation's context. A failed or timed-out call (20 s) leaves the stack as it was. When the answer's label is wider than 24 cells, the same request goes out once more with the first answer attached, asking for a shorter label. If the second answer is still too wide or moves the stack another way, the first label is cut at 24 cells (ending in `…`).
 
 Each call is also written as one JSON line to `~/.claude/mind-stack/calls.jsonl` (the newest 200 kept): time, latency, a hash of the rules, the stack before and after, the first 60 characters of the prompt, the whole request sent to `haiku`, its answer, the verdict and the tokens (those read from and written to the cache apart). When a shorter label was asked for, that answer is in `retried`. `/topic log` shows the totals.
 

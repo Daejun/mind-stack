@@ -2,7 +2,18 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 
 import type { On } from 'claude-code'
 
-import { EMPTY, apply, longLabel, sameMove, trailLine, parseVerdict, trail, width } from './stack'
+import {
+  EMPTY,
+  apply,
+  isAsking,
+  longLabel,
+  request,
+  sameMove,
+  trailLine,
+  parseVerdict,
+  trail,
+  width,
+} from './stack'
 
 const at = (...labels: string[]) => labels.map((label, turn) => ({ label, turn }))
 const typed = (text: string) => ({ text, wait: false, origin: { kind: 'composer' as const } })
@@ -85,6 +96,23 @@ describe('stack', () => {
     })
     expect(parseVerdict('{"action":"sibling","to":1}', 3)).toBe(undefined)
     expect(parseVerdict('no json', 1)).toBe(undefined)
+  })
+
+  test('a reply that ends asking is sent longer', () => {
+    expect(isAsking('이 순서로 진행할까요?')).toBe(true)
+    expect(isAsking('**어느 쪽으로 할까요?**\n')).toBe(true)
+    expect(isAsking('GPU 재현으로 갈지 정해 주세요.')).toBe(true)
+    expect(isAsking('Shall I push it?')).toBe(true)
+    expect(isAsking('테스트 7개가 통과했습니다.')).toBe(false)
+    // Hangul after the ending is a sentence going on, not the end of a question.
+    expect(isAsking('할까요 말까요 고민하다가 그대로 두었습니다')).toBe(false)
+    // The question is looked for at the end only.
+    expect(isAsking('왜 그럴까요? ' + '결과를 적었습니다. '.repeat(40))).toBe(false)
+
+    const options = '1. A를 고친다\n' + 'x'.repeat(500) + '\n어느 것부터 할까요?'
+    expect(request([], options, '1번 진행해').includes('1. A를 고친다')).toBe(true)
+    const plain = '1. A를 고쳤다\n' + 'x'.repeat(500) + '\n끝났습니다.'
+    expect(request([], plain, '다음').includes('1. A를 고쳤다')).toBe(false)
   })
 
   test('a label wider than the row is found before it is cut', () => {
@@ -340,6 +368,44 @@ describe('hooks', () => {
     expect(asked.length).toBe(1)
     const shown = await $.command.run(topic(''))
     expect(shown.text?.includes('1. 할일 확인')).toBe(true)
+  })
+
+  test("a short prompt that answers the last reply's question is judged", async ($, on) => {
+    const clock = mock.clock(on)
+    mock.store(on)
+    mockFiles(on)
+    const asked: string[] = []
+    let reply = ''
+    const verdicts = [
+      '{"action":"push","label":"#84 답글"}',
+      '{"action":"push","label":"#84 재측정"}',
+    ]
+
+    on('command.register', () => ({ value: { command: 'topic' } }))
+    on('session.start', (_, e) => ({ cwd: e.cwd }))
+    on('session.id', () => ({ value: 's6' }))
+    on('session.turns', () => ({ value: 0 }))
+    on('session.messages', () => ({ value: [{ role: 'assistant', text: reply }] }))
+    on('model.complete', (_, e) => {
+      asked.push(e.prompt)
+      return { value: { isAnswered: true, text: verdicts.shift() ?? '', usage } }
+    })
+    on('prompt.submit', (_, e) => ({ text: e.text }))
+
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('#84 답글 쓰자'))
+    await clock.advance(5)
+    reply = '답글을 올렸습니다.'
+    await $.prompt.submit(typed('ㅇㅋ'))
+    await clock.advance(5)
+    reply = '1. 답글 고치기\n2. 재측정\n\n어느 쪽으로 할까요?'
+    await $.prompt.submit(typed('2번 ㄱㄱ'))
+    await clock.advance(5)
+
+    expect(asked.length).toBe(2)
+    expect(asked[1]?.includes('2. 재측정')).toBe(true)
+    const shown = await $.command.run(topic(''))
+    expect(shown.text?.includes('#84 재측정')).toBe(true)
   })
 
   test('a resume in the running process shows the stack that session saved', async ($, on) => {
