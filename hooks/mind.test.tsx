@@ -307,6 +307,34 @@ describe('hooks', () => {
     expect(JSON.parse(log[0] ?? '{}').retried).toBe('{"action":"push","label":"readable 확인"}')
   })
 
+  test('a label too long is kept whole when the second call gets no answer', async ($, on) => {
+    const clock = mock.clock(on)
+    mock.store(on)
+    engineHint(on)
+    const files = mockFiles(on)
+    engine(on, () => 's9')
+    const answers = [
+      { isAnswered: true as const, text: '{"action":"push","label":"seq write 4→16MB 원인 분석"}', usage },
+      { isAnswered: false as const, reason: 'aborted' as const, usage },
+    ]
+    on('model.complete', () => ({ value: answers.shift()! }))
+
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('왜 4->16 mb로 했을때 seq w 좋아진다고 했는지 분석해줘'))
+    await clock.advance(5)
+
+    expect(answers.length).toBe(0)
+    const shown = (await $.command.run(topic(''))).text ?? ''
+    expect(shown.includes('1. seq write 4→16MB 원인 분석')).toBe(true)
+    expect(shown.includes('haiku calls 2 (failed 0)')).toBe(true)
+    // The row cuts the label only when it lacks the room.
+    const ui = await $.ui.mount(HINT)
+    expect((await ui.find({ key: 'trail' }))?.text).toBe('📚 seq write 4→16MB 원인 분석')
+    await ui.unmount()
+    const log = (files.get('/home/t/.claude/mind-stack/calls.jsonl') ?? '').trim().split('\n')
+    expect(JSON.parse(log[0] ?? '{}').retried).toBe(null)
+  })
+
   test('prompts absorbed into a running turn still get numbers of their own', async ($, on) => {
     const clock = mock.clock(on)
     mock.store(on)

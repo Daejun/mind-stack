@@ -144,6 +144,8 @@ async function judge($: $, prompt: string, reply: string, turn: number, hasLeft:
   // A label wider than the row keeps loses its end to cut(), and the end is
   // often the word that names the task ("... 확인"): ask once for a shorter
   // one, and keep the first verdict, cut, when the second does not fit.
+  // When the second call gets no answer, the first label stays whole: the
+  // row cuts it only when it lacks the room.
   const long = r.isAnswered && verdict !== undefined ? longLabel(r.text) : undefined
   let retried: string | null = null
   if (long !== undefined && !hasLeft()) {
@@ -157,6 +159,8 @@ async function judge($: $, prompt: string, reply: string, turn: number, hasLeft:
       if (isFit) {
         verdict = second
       }
+    } else if (verdict !== undefined && 'label' in verdict) {
+      verdict = { ...verdict, label: long }
     }
   }
   const total = (key: keyof (typeof usages)[number]) =>
